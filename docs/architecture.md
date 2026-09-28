@@ -1,0 +1,97 @@
+# SuperApp — Arquitectura
+
+Un solo frontend con un módulo por feature. En el backend cada feature es
+autónoma: su propio microservicio (`ms`) y su propia base de datos (`db`).
+Ningún `ms` accede a la `db` de otro feature. Todo el tráfico del frontend
+entra por el **API Gateway**, que enruta y valida antes de llegar a los
+microservicios.
+
+## Diagrama
+
+```mermaid
+flowchart TB
+  subgraph front["front/ — aplicación única"]
+    direction LR
+    MOD_AU["auth<br/>(módulo)"]
+    MOD_CA["control-de-accesos<br/>(módulo)"]
+    MOD_NO["notificaciones<br/>(módulo)"]
+    SHARED["shared"]
+  end
+
+  GW{{"back/api-gateway<br/>enrutamiento · authN/Z · rate limit"}}
+
+  subgraph back["back/"]
+    subgraph fau["auth"]
+      MAU["ms"] --> DAU[("db")]
+    end
+    subgraph fca["control-de-accesos"]
+      MCA["ms"] --> DCA[("db")]
+    end
+    subgraph fno["notificaciones"]
+      MNO["ms"] --> DNO[("db")]
+    end
+  end
+
+  MOD_AU --> GW
+  MOD_CA --> GW
+  MOD_NO --> GW
+
+  GW --> MAU
+  GW --> MCA
+  GW --> MNO
+
+  GW -. "valida token" .-> MAU
+  MCA -. "evento de acceso" .-> MNO
+  MAU -. "evento de cuenta" .-> MNO
+
+  INF["infra/ — IaC · despliegue"]
+  INF -.-> front
+  INF -.-> GW
+  INF -.-> back
+```
+
+## Estructura de carpetas
+
+```
+SuperApp/
+├── back/
+│   ├── api-gateway/             # servicio sin estado: no tiene db/
+│   ├── control-de-accesos/
+│   │   ├── ms/                  # microservicio de control de accesos
+│   │   └── db/                  # esquema y migraciones propias
+│   ├── auth/
+│   │   ├── ms/
+│   │   └── db/
+│   └── notificaciones/
+│       ├── ms/
+│       └── db/
+├── front/                       # una sola aplicación
+│   └── src/
+│       ├── modules/
+│       │   ├── control-de-accesos/
+│       │   ├── auth/
+│       │   └── notificaciones/
+│       └── shared/              # código común entre módulos
+├── infra/
+└── docs/
+    └── architecture.md
+```
+
+## Componentes
+
+| Componente | Responsabilidad | Depende de |
+|---|---|---|
+| `front` | Aplicación única; un módulo de UI por feature | `api-gateway` |
+| `back/api-gateway` | Punto de entrada único: enrutamiento, validación de token, rate limiting. Sin base de datos. | `auth` |
+| `back/auth` | Identidad, credenciales, emisión y validación de tokens | — |
+| `back/control-de-accesos` | Permisos, roles y registro de entradas/salidas | `auth` |
+| `back/notificaciones` | Envío y bitácora de notificaciones (email, push, SMS) | `auth`, `control-de-accesos` |
+
+## Convenciones
+
+- `ms/` contiene el servicio desplegable del feature.
+- `db/` contiene únicamente los artefactos de datos de ese feature
+  (migraciones, semillas, esquema). Una base de datos por feature.
+- `api-gateway` no tiene `db/`: es sin estado por diseño.
+- El frontend nunca llama a un `ms` directamente, siempre vía `api-gateway`.
+- Las carpetas se mantienen en git con `.gitkeep` hasta que tengan código.
