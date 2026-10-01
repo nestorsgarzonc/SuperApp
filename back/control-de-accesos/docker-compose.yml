@@ -1,0 +1,27 @@
+# Base solo de este módulo. Puerto 5433 para no chocar con el Postgres
+# del monolito (5432). El esquema y el seed se aplican en el primer
+# arranque, igual que docker/postgres en el compose principal.
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    container_name: control_accesos_db
+    environment:
+      POSTGRES_USER: accesos
+      POSTGRES_PASSWORD: accesos
+      POSTGRES_DB: control_accesos
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"
+    volumes:
+      - control_accesos_pgdata:/var/lib/postgresql/data
+      - ./db/001_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./db/002_seed.sql:/docker-entrypoint-initdb.d/02_seed.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U accesos -d control_accesos"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  control_accesos_pgdata:
