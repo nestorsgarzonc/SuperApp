@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: control_de_accesos_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: control_de_accesos
+      POSTGRES_PASSWORD: control_de_accesos
+      POSTGRES_DB: control_de_accesos
+    ports:
+      - "5433:5432"
+    volumes:
+      - control_de_accesos_db:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U control_de_accesos -d control_de_accesos"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ms:
+    build: ./ms
+    container_name: control_de_accesos_ms
+    restart: unless-stopped
+    environment:
+      ENV: development
+      PORT: 8080
+      JWT_SECRET: dev_jwt_secret_change_in_production_min_32_chars
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: control_de_accesos
+      DB_PASSWORD: control_de_accesos
+      DB_NAME: control_de_accesos
+      DB_SSLMODE: disable
+      # Base URL of the notificaciones microservice. Empty/unset = no-op (that
+      # service doesn't exist yet). Set to e.g. http://notificaciones-ms:8080/internal/events
+      # once it's built and put on the same Docker network.
+      NOTIFICATIONS_URL: ""
+    ports:
+      - "8081:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  control_de_accesos_db:
