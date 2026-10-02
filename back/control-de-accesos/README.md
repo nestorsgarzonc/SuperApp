@@ -18,26 +18,16 @@ control-de-accesos/
 └── docker-compose.yml
 ```
 
-`ms/internal/directory` es una réplica local mínima de "qué usuario pertenece
-a qué unidad/complejo" — en el monolito eso vivía en `tenancy`/`identity`;
-aquí el propio microservicio guarda solo lo que necesita para sus chequeos de
-acceso (en producción se sincronizaría vía eventos desde el servicio de
-identidad; para desarrollo local se siembra directo en `db/migrations/002_seed.sql`).
+`ms/internal/directory`: réplica local de "qué usuario pertenece a qué
+unidad/complejo" (en el monolito vivía en `tenancy`/`identity`). Sembrada en
+`db/migrations/002_seed.sql`.
 
-Tampoco hay microservicio de `notificaciones` todavía. `ms/internal/notifier`
-es el extremo saliente de la flecha "evento de acceso" del diagrama de
-`architecture.md`: cuando se crea un QR, una pre-autorización, un grant
-genérico, se valida un acceso o se cancela un grant, el servicio intenta un
-`POST` *best-effort* a `NOTIFICATIONS_URL` con el evento. Si esa variable está
-vacía (el valor por defecto) o el POST falla, no pasa nada — se loguea y la
-operación de acceso sigue normal. No se implementó nada del lado de
-`notificaciones`; esto es solo el gancho para cuando exista.
+`ms/internal/notifier`: `POST` best-effort a `NOTIFICATIONS_URL` en cada
+creación/validación/cancelación de grant. Vacío o con error → no-op, no
+bloquea la operación.
 
-No hay microservicio de `auth` todavía, así que este servicio expone un
-endpoint de solo-desarrollo (`/api/v1/dev/token`) que firma un JWT válido para
-el usuario demo sembrado — mismo formato de token (HS256, mismo secreto) que
-usaría el futuro `back/auth`. En producción ese endpoint no se monta
-(solo cuando `ENV=development`) y los tokens los emitiría `back/auth`.
+`/api/v1/dev/token` (solo `ENV=development`): firma un JWT demo con el mismo
+formato (HS256, mismo secreto) que emitiría `back/auth`.
 
 ## Levantarlo en local
 
@@ -151,36 +141,19 @@ docker compose down        # detiene los contenedores
 docker compose down -v     # además borra los datos (vuelve a sembrar desde cero)
 ```
 
-## Producción / AWS RDS
-
-La idea es que este microservicio, cuando se despliegue, guarde sus datos en
-**RDS (Postgres)** en vez del Postgres de `docker compose`. No hay nada de
-Terraform/IaC aquí — eso es un paso aparte — pero la app ya está lista para
-ese cambio con solo variables de entorno, sin tocar código:
+## AWS RDS
 
 - `DB_HOST` / `DB_PORT` → endpoint de la instancia RDS.
-- `DB_SSLMODE=require` (mínimo) o `verify-full` + `DB_SSLROOTCERT=/ruta/al/global-bundle.pem`
-  (el bundle de CA de RDS) — nunca `disable` contra RDS.
-- `DB_PASSWORD` / `JWT_SECRET` deben venir de Secrets Manager / SSM Parameter
-  Store en el momento del despliegue, no hardcodeados como en el
-  `docker-compose.yml` local.
-- `DB_MAX_OPEN_CONNS` / `DB_MAX_IDLE_CONNS` / `DB_CONN_MAX_LIFETIME_MINUTES` —
-  ajustar según el `max_connections` de la clase de instancia RDS elegida.
-  El valor de `CONN_MAX_LIFETIME` por defecto (5 min) existe para que el pool
-  recicle conexiones periódicamente y así sobreviva un failover de RDS.
+- `DB_SSLMODE=require` (o `verify-full` + `DB_SSLROOTCERT=/ruta/al/global-bundle.pem`). Nunca `disable`.
+- `DB_PASSWORD` / `JWT_SECRET` → Secrets Manager / SSM Parameter Store.
+- `DB_MAX_OPEN_CONNS` / `DB_MAX_IDLE_CONNS` / `DB_CONN_MAX_LIFETIME_MINUTES` → según el `max_connections` de la instancia.
 
-Localmente, `docker-entrypoint-initdb.d` aplica `db/migrations/*.sql`
-automáticamente la primera vez que arranca el volumen — RDS no tiene ese
-hook. Para aplicar el esquema ahí (o para repetirlo tras un cambio), corre:
+Aplicar el esquema (sin el hook de `docker-entrypoint-initdb.d`):
 
 ```bash
 DB_HOST=<endpoint-rds> DB_PORT=5432 DB_USER=... DB_PASSWORD=... DB_NAME=... \
 DB_SSLMODE=require ./db/migrate.sh
 ```
-
-El script usa `psql` y aplica cada archivo de `db/migrations/` en orden; es
-idempotente (`CREATE TABLE IF NOT EXISTS`, `ON CONFLICT DO NOTHING`), así que
-correrlo de nuevo no rompe nada.
 
 ## Endpoints
 
