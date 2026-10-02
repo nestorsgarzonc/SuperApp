@@ -12,14 +12,22 @@ SuperApp. Código en [`back/control-de-accesos/`](../back/control-de-accesos/).
 ```
 back/control-de-accesos/
 ├── ms/     # microservicio Go (chi + database/sql)
-├── db/     # migraciones y seed, propias de este feature (sin FKs a otros servicios)
-├── test/   # smoke test + mock de notificaciones
+├── db/     # propias de este feature (sin FKs a otros servicios)
+│   ├── migrations/   # SOLO esquema: se aplican a cualquier base (RDS incluida)
+│   └── seeds/        # datos de demostración, solo desarrollo (nunca en producción)
+├── test/   # smoke, aislamiento, residentes, breaker, endurecimiento + reset de datos
 └── docker-compose.yml
 ```
 
-`ms/internal/directory`: réplica local de "qué usuario pertenece a qué
-unidad/complejo" (en el monolito vivía en `tenancy`/`identity`). Sembrada en
-`db/migrations/002_seed.sql`.
+`ms/internal/directory`: réplica local de "quién pertenece a qué conjunto"
+(en el monolito vivía en `tenancy`/`identity`). Un **residente** pertenece a un
+conjunto por ser miembro de una unidad (`unit_members`); un **guardia/admin**
+por estar en `complex_staff` con ese rol *para ese conjunto*. Una misma persona
+puede tener cualquier combinación en conjuntos distintos (p. ej. residente en
+el 1 y guardia en el 2). Los datos de demostración están en `db/seeds/001_demo.sql`
+(2 conjuntos, 7 personas, ver más abajo).
+
+`ms/internal/accesslog`: bitácora de portería (ver *Reglas de negocio*).
 
 `ms/internal/notifier`: `POST` best-effort a `NOTIFICATIONS_URL` en cada
 creación/validación/cancelación de grant. Vacío o con error → no-op, no
@@ -31,12 +39,47 @@ que rechazan la operación a nivel de base de datos, no solo por disciplina de
 código). Se escribe un registro en cada creación, cancelación y validación
 (exitosa o denegada) de un grant, y en cada intento cross-tenant.
 
-`/api/v1/dev/token` (solo `ENV=development`): firma un JWT demo con el mismo
-formato (HS256, mismo secreto) que emitiría `back/auth`. Acepta `?role=GUARD`
-(o `ADMIN`) para probar endpoints restringidos por rol — por defecto emite
-`RESIDENT`.
+`ms/internal/devtools`, sustituto de `back/auth` mientras no esté integrado — nada fijo en el
+código, todo sale de la base. **Solo existe si el binario se compila con `-tags dev` *y* se arranca con
+`ENV=development`** (docker compose ya compila con `GO_TAGS=dev`); un binario normal no tiene rutas `/dev/*`:
+
+- `GET /api/v1/dev/users` → personas con sus membresías (conjunto, rol, unidad).
+- `GET /api/v1/dev/token?user_id=&complex_id=[&role=]` → JWT (HS256) de esa
+  persona **en ese conjunto**. El rol y la unidad los deriva el servidor de la
+  pertenencia real: pedir un conjunto al que no pertenece (o un rol que no tiene
+  allí) devuelve 403. `role` solo desambigua si tiene varios en el mismo conjunto.
+
+### Personas de prueba (`db/seeds/001_demo.sql`)
+
+| Persona | Conjunto 1 · Los Pinos | Conjunto 2 · Alto del Bosque |
+|---|---|---|
+| Ana García | residente A-101 | — |
+| Pedro Gómez | — | residente B-201 |
+| Luis Mora | guardia | — |
+| Marta Ruiz | — | guardia |
+| Carlos Rojas | administrador | — |
+| Sofía Díaz | residente A-102 | residente B-202 |
+| Andrés Vega | residente A-102 | **guardia** |
+
+La cédula `COL555555` tiene una pre-autorización en *cada* conjunto, a propósito.
+
+### Aislamiento entre conjuntos
+
+- El conjunto sale del **token**; un `X-Complex-ID`, `?complex_id=` o `complex_id`
+  del body distintos se ignoran.
+- `/access-grants/validate` y `/access-logs` exigen que el rol del token coincida
+  con una fila de `complex_staff` **de ese conjunto** (se consulta la base en cada
+  petición; un token con `role=GUARD` de alguien que no es guardia allí → 403).
+- Un QR o una cédula de otro conjunto devuelve `valid:false` y **no se consume**.
 
 ## Reglas de negocio
+
+- **Bitácora de portería (`access-logs`)**: registra lo que *ocurrió* en la puerta
+  (el grant dice quién *puede* entrar). `ENTRY`/`EXIT` son siempre `AUTHORIZED`;
+  un `ATTEMPT` siempre `DENIED`. `occurred_at` es opcional (registro offline) pero
+  no puede estar en el futuro ni tener más de 7 días. `client_id` lo genera el
+  cliente: reenviar el mismo no duplica. `grant_id` solo se conserva si el grant es
+  del mismo complejo. Cada registro nuevo deja una entrada en `audit_log`.
 
 - **Solo `GUARD`/`ADMIN` pueden validar** (`POST /access-grants/validate`) — un
   `RESIDENT` recibe `403`.
@@ -75,18 +118,18 @@ curl http://localhost:8081/healthz
 ### 1. Obtener un token (solo dev)
 
 ```bash
-curl http://localhost:8081/api/v1/dev/token
+curl http://localhost:8081/api/v1/dev/users          # personas y conjuntos
 ```
 
-Devuelve `token`, `complex_id` y `unit_id` del usuario demo (residente de la
-unidad `A-101`). Guárdalo en una variable. Para `/access-grants/validate`
-(paso 5 y 6) hace falta además un token con rol `GUARD`:
+El token se pide por persona + conjunto. Para `/access-grants/validate`
+(paso 5 y 6) hace falta un guardia del conjunto:
 
 ```bash
-TOKEN=$(curl -s http://localhost:8081/api/v1/dev/token | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
-GUARD_TOKEN=$(curl -s "http://localhost:8081/api/v1/dev/token?role=GUARD" | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
-COMPLEX_ID=00000000-0000-0000-0000-000000000001
-UNIT_ID=10000000-0000-0000-0000-000000000101
+COMPLEX_ID=00000000-0000-0000-0000-000000000001      # Los Pinos
+UNIT_ID=10000000-0000-0000-0000-000000000101         # A-101
+tok() { curl -s "http://localhost:8081/api/v1/dev/token?user_id=$1&complex_id=$COMPLEX_ID" | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['token'])"; }
+TOKEN=$(tok 10000000-0000-0000-0000-000000000001)        # Ana García, residente
+GUARD_TOKEN=$(tok 10000000-0000-0000-0000-000000000003)  # Luis Mora, guardia
 ```
 
 ### 2. Listar los códigos QR sembrados
@@ -177,13 +220,22 @@ cd back/control-de-accesos
 BASE_URL=http://localhost:8080 ./test/smoke_test.sh
 ```
 
-39 checks sobre los 10 endpoints: happy path, JSON malformado, campos
+41 checks sobre los 10 endpoints: happy path, JSON malformado, campos
 faltantes, enums inválidos, fechas inválidas/longitud excedida, recurso
 inexistente, UUID inválido, método no permitido, auth faltante, rol
 incorrecto (`RESIDENT` contra `/validate` → 403), aislamiento de tenant
 (`?complex_id=` ajeno se ignora) y consumo de un solo uso (mismo QR
 validado dos veces). Necesita una base recién migrada/sembrada (usa IDs
 del seed, cancela un grant y consume el QR semilla).
+
+Aislamiento entre conjuntos (68 checks: dos conjuntos, guardias, residentes,
+una persona en ambos conjuntos, tokens manipulados, bitácora). Reiniciar los
+datos de prueba antes de cada corrida (consume pases de un solo uso):
+
+```bash
+node test/isolation.mjs                      # BASE=http://localhost:8081/api/v1 por defecto
+cd ms && go test ./...                       # validaciones de accesslog + middleware de personal
+```
 
 Para ver los eventos que dispara `internal/notifier` (sin montar el
 microservicio de notificaciones real):
@@ -213,16 +265,26 @@ DB_SSLMODE=require ./db/migrate.sh
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
 | POST | `/api/v1/access/qr-codes` | autenticado + dueño de la unidad | Crear QR (tope 12h) |
-| POST | `/api/v1/access/qr-codes/batch` | autenticado + dueño de la unidad | Crear varios QR (tope 12h c/u) |
-| GET | `/api/v1/access/qr-codes` | autenticado | Listar QR del complejo (del token) |
+| POST | `/api/v1/access/qr-codes/batch` | autenticado + dueño de la unidad | Crear varios QR (tope 12h c/u). **Atómico**: todos o ninguno |
+| GET | `/api/v1/access/qr-codes` | autenticado | Mis QR: **solo los de las unidades a las que pertenezco** (el código es una credencial) |
 | POST | `/api/v1/access/pre-auth` | autenticado + dueño de la unidad | Crear pre-autorización |
-| GET | `/api/v1/access/pre-auth` | autenticado | Listar pre-autorizaciones |
+| GET | `/api/v1/access/pre-auth` | autenticado | Mis pre-autorizaciones (solo de mis unidades) |
+| GET | `/api/v1/access/summary` | **`GUARD`/`ADMIN`** | Conteos de pases del conjunto (total, activos, QR, pre-auth). Nunca códigos ni documentos |
 | POST | `/api/v1/access-grants` | autenticado + dueño de la unidad | Crear grant genérico (QR o PRE_AUTH) |
 | GET | `/api/v1/access-grants/{id}` | autenticado + dueño de la unidad | Obtener un grant |
 | PATCH | `/api/v1/access-grants/{id}/cancel` | autenticado + dueño de la unidad | Cancelar un grant |
 | POST | `/api/v1/access-grants/validate` | **`GUARD`/`ADMIN` únicamente** | Validar QR/PRE_AUTH (consume el grant) |
 | GET | `/api/v1/units/{unitId}/access-grants` | autenticado + miembro de la unidad | Grants de una unidad |
-| GET | `/api/v1/dev/token` | ninguno | *(solo dev)* token demo, `?role=` opcional |
+| POST | `/api/v1/access-logs` | **`GUARD`/`ADMIN` únicamente** | Registrar ingreso (`ENTRY`), salida (`EXIT`) o intento denegado (`ATTEMPT`). Idempotente por `client_id` (201 nuevo / 200 repetido) |
+| GET | `/api/v1/access-logs` | **`GUARD`/`ADMIN` únicamente** | Bitácora del complejo. Filtros: `from`, `to` (RFC3339), `movement`, `result`, `limit` (≤500) |
+| POST | `/api/v1/resident-movements` | `RESIDENT` | Residente entra/sale del edificio (409 si ya está en ese estado) |
+| GET | `/api/v1/resident-movements/me` | `RESIDENT` | Mi estado (dentro/fuera) y movimientos |
+| GET | `/api/v1/resident-movements/presence` | **`GUARD`/`ADMIN`** | Residentes dentro ahora |
+| GET | `/api/v1/access/qr-system` | autenticado | Disponibilidad del sistema QR (circuit breaker) |
+| GET/PUT | `/api/v1/dev/qr-system` | ninguno | *(solo dev)* ver/forzar caída simulada del sistema QR |
+| POST | `/api/v1/dev/qr-system/reset` | ninguno | *(solo dev)* cierra el circuito ya |
+| GET | `/api/v1/dev/users` | ninguno | *(solo dev)* personas y membresías, leídas de la base |
+| GET | `/api/v1/dev/token` | ninguno | *(solo dev)* `?user_id=&complex_id=[&role=]` → JWT de esa persona en ese conjunto |
 | GET | `/healthz` | ninguno | Health check |
 
 ## Eventos salientes (hacia `notificaciones`, cuando exista)
@@ -238,6 +300,83 @@ DB_SSLMODE=require ./db/migrate.sh
 | `access.grant_cancelled` | `CancelAccessGrant` |
 
 Payload: `{type, complex_id, unit_id, grant_id, visitor_name, method}`.
+
+## Entrada y salida de residentes
+
+Los residentes marcan que entran o salen del edificio (conjunto). Se guarda en la misma
+bitácora `access_logs` con `subject_type = RESIDENT` (migración `006`).
+
+- `POST /api/v1/resident-movements` `{client_id, movement: ENTRY|EXIT}` (rol `RESIDENT`). **Nombre, unidad y
+  hora los pone el servidor**; lo que mande el cliente se ignora. 201 nuevo, 200 si repite el `client_id`,
+  **409** si contradice el estado (ya está dentro / ya está fuera). El estado es el último movimiento
+  **en ese conjunto**; sin historial se permite cualquiera de los dos.
+- Dos toques simultáneos no duplican: la transacción toma un `pg_advisory_xact_lock` por residente+conjunto.
+- `GET /api/v1/resident-movements/me` → estado (`INSIDE|OUTSIDE|UNKNOWN`), desde cuándo y sus movimientos.
+- `GET /api/v1/resident-movements/presence` (guardia/admin) → residentes dentro ahora, por conjunto.
+- `GET /api/v1/access-logs?subject=RESIDENT|VISITOR` filtra la bitácora general.
+
+## Circuit breaker del sistema QR
+
+`ms/internal/qrsystem` aísla la integración que **emite y lee** códigos QR (dispositivo/servicio externo en
+portería). Un dispositivo que no responde no debe dejar solicitudes bloqueadas: cada llamada tiene un
+**timeout** y tras varios fallos seguidos el circuito **se abre** y se responde al instante con un error
+controlado.
+
+```
+CLOSED ──(N fallos seguidos)──▶ OPEN ──(enfriamiento)──▶ HALF_OPEN ──(prueba ok)──▶ CLOSED
+                                  ▲                          │
+                                  └──────(prueba falla)──────┘
+```
+
+- **Dónde se aplica:** emitir un QR (`POST /access-grants` con `method=QR`, `/access/qr-codes`, lote) y leer un
+  QR en portería (`/access-grants/validate` con `method=QR`). La **pre-autorización por documento no pasa por
+  ahí** y sigue funcionando: es el *fallback*.
+- **Error controlado:** `503` con `error.code = QR_001`, cabecera `Retry-After` y
+  `details: {cause: TIMEOUT|CIRCUIT_OPEN|ERROR, fallback: "PRE_AUTH", retry_after_seconds}`.
+- **Estado para el front:** `GET /api/v1/access/qr-system` → `{available, state, retry_after_seconds, fallback}`.
+  Pasado el enfriamiento informa `HALF_OPEN` (disponible) para que el siguiente intento real sea el que
+  cierra el circuito; si no, nadie volvería a probar.
+- Una cancelación del cliente (cerró la pestaña) **no** cuenta como fallo del dispositivo.
+- **Configuración:** `QR_BREAKER_FAILURES` (3), `QR_BREAKER_OPEN_SECONDS` (10), `QR_CALL_TIMEOUT_MS` (800),
+  `QR_MAX_CONCURRENT` (32).
+- **Límite de concurrencia (bulkhead):** como los fallos solo se cuentan cuando cada llamada termina, una ráfaga
+  antes de abrirse el circuito dejaría una goroutine esperando el timeout por petición. Pasado `QR_MAX_CONCURRENT`
+  llamadas en vuelo, el resto se rechaza al instante (`cause: OVERLOADED`), sin contarlo como fallo del dispositivo.
+- Los callbacks de cambio de estado se ejecutan **fuera** del lock del breaker.
+- **Simulación (solo `ENV=development`):** el cliente es un `Simulator`; en modo `DOWN` *no responde* (cuelga hasta
+  el timeout), como un lector averiado. `GET/PUT /api/v1/dev/qr-system {"mode":"UP|DOWN"}` y
+  `POST /api/v1/dev/qr-system/reset`. El front lo expone en el panel 🛠 de la esquina. Fuera de desarrollo se
+  usa un cliente local (códigos aleatorios de 256 bits) con el mismo breaker.
+
+## Motivos de rechazo al validar
+
+`/access-grants/validate` devuelve `valid:false` con `reason` (el front lo traduce para el guardia):
+`NOT_FOUND`, `NO_AUTHORIZATION` (cédula sin pase), `NOT_YET_VALID` y `EXPIRED` (con
+`valid_from`/`valid_until`), `ALREADY_USED`, `CANCELLED`. La vigencia ya no se filtra en SQL: antes un pase
+que aún no empezaba o ya vencía llegaba como "not found or expired" sin explicación.
+
+**No se filtra información entre conjuntos:** un QR de *otro* conjunto responde exactamente igual que un código
+inexistente (`NOT_FOUND`, mismo mensaje, sin datos del pase); el motivo real queda solo en `audit_log`. Lo mismo para
+una cédula sin pre-autorización en este conjunto. Los motivos específicos (usado, vencido, revocado, no vigente) solo se
+muestran cuando el pase **es de tu conjunto**.
+
+## Seguridad y endurecimiento
+
+Resultado de la revisión de código; cada punto tiene prueba (`test/hardening.mjs`, tests Go):
+
+- **Un pase es una credencial.** El QR (y la cédula de una pre-autorización) permite entrar. Los listados
+  `/access/qr-codes` y `/access/pre-auth` devuelven solo lo de *mis* unidades; antes devolvían todo el conjunto y un
+  residente podía tomar el pase de un vecino. Portería/administración ven conteos (`/access/summary`).
+- **Falla cerrada.** `ENV` por defecto es `production`: JWT obligatorio en todas las rutas y sin herramientas de
+  desarrollo. Solo `ENV=development` explícito (con un binario `-tags dev`) las habilita.
+- **Seeds fuera de las migraciones.** `db/migrations/` se aplica a cualquier base (incluida RDS) con `db/migrate.sh`;
+  los datos de demostración (con UUID fijos y filas de guardia/admin) viven en `db/seeds/` y solo se cargan en el primer
+  arranque de docker compose, con `WITH_SEEDS=1 db/migrate.sh` o con `test/reset_data.sh`.
+- **Cuerpo máximo de 1 MiB** en todos los endpoints JSON → `413` (`SYS_003`), sin leer ni decodificar el exceso.
+- **Un solo formato de error** `{"success":false,"error":{"code","message"}}`, también para 401/403 del middleware.
+- **Lote de QR atómico:** se emiten todos los códigos y se insertan en una sola transacción.
+- **No se revela qué existe en otros conjuntos:** un QR/cédula/id de otro conjunto responde igual que uno inexistente.
+- **Índice** `unit_members(user_id)` (migración `007`): las comprobaciones de pertenencia corren en cada petición.
 
 ## Pendiente
 
