@@ -38,7 +38,9 @@ type UnitMembershipChecker interface {
 }
 
 type DirectoryRepository interface {
-	GetUnitComplexID(ctx context.Context, unitID uuid.UUID) (uuid.UUID, error)
+	// GetUnitComplexID's found return is false when the unit simply doesn't
+	// exist (vs. err, which signals an actual lookup failure).
+	GetUnitComplexID(ctx context.Context, unitID uuid.UUID) (complexID uuid.UUID, found bool, err error)
 	GetUnitName(ctx context.Context, unitID uuid.UUID) (string, error)
 	GetUserDisplayName(ctx context.Context, userID uuid.UUID) (string, error)
 }
@@ -97,12 +99,15 @@ func (s *service) notify(ctx context.Context, eventType string, grant *AccessGra
 }
 
 func (s *service) validateUnitBelongsToComplex(ctx context.Context, complexID, unitID uuid.UUID) error {
-	unitComplexID, err := s.directory.GetUnitComplexID(ctx, unitID)
+	unitComplexID, found, err := s.directory.GetUnitComplexID(ctx, unitID)
 	if err != nil {
 		return fmt.Errorf("failed to load unit: %w", err)
 	}
+	if !found {
+		return ErrUnitNotFound
+	}
 	if unitComplexID != complexID {
-		return fmt.Errorf("unit does not belong to the selected complex")
+		return ErrUnitComplexMismatch
 	}
 	return nil
 }
@@ -305,7 +310,7 @@ func (s *service) CancelAccessGrant(ctx context.Context, complexID uuid.UUID, us
 func (s *service) ValidateAccess(ctx context.Context, req ValidateAccessRequest) (*ValidateAccessResponse, error) {
 	complexID, err := authmw.GetComplexIDAsUUID(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("complex ID is required")
+		return nil, ErrComplexIDRequired
 	}
 	req.ComplexID = complexID
 
@@ -314,7 +319,7 @@ func (s *service) ValidateAccess(ctx context.Context, req ValidateAccessRequest)
 	switch req.Method {
 	case MethodQR:
 		if req.QRCode == nil || *req.QRCode == "" {
-			return nil, fmt.Errorf("QR code is required for QR validation")
+			return nil, ErrQRCodeRequired
 		}
 		grant, err = s.repo.GetAccessGrantByQRHash(ctx, *req.QRCode)
 		if err != nil {
@@ -331,7 +336,7 @@ func (s *service) ValidateAccess(ctx context.Context, req ValidateAccessRequest)
 		}
 	case MethodPreAuth:
 		if req.VisitorIDNumber == nil || *req.VisitorIDNumber == "" {
-			return nil, fmt.Errorf("visitor ID number is required for PRE_AUTH validation")
+			return nil, ErrVisitorIDRequired
 		}
 		grants, err := s.repo.GetActiveAccessGrantsByVisitorID(ctx, req.ComplexID, *req.VisitorIDNumber)
 		if err != nil {
@@ -345,7 +350,7 @@ func (s *service) ValidateAccess(ctx context.Context, req ValidateAccessRequest)
 		}
 		grant = grants[0] // Use first active grant
 	default:
-		return nil, fmt.Errorf("unsupported validation method: %s", req.Method)
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedMethod, req.Method)
 	}
 
 	now := time.Now()

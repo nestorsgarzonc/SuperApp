@@ -34,14 +34,19 @@ func resolveComplexID(r *http.Request) (uuid.UUID, error) {
 	return middleware.GetComplexIDAsUUID(r.Context())
 }
 
-// respondGrantWriteError maps a grant-write failure: a unit-scope denial is a
-// 403, anything else stays an internal error.
 func respondGrantWriteError(w http.ResponseWriter, err error) {
-	if stderrors.Is(err, ErrUnitAccessDenied) {
+	switch {
+	case stderrors.Is(err, ErrUnitAccessDenied):
 		errors.RespondError(w, nil, errors.NewPermissionError(""))
-		return
+	case stderrors.Is(err, ErrUnitNotFound):
+		errors.RespondError(w, nil, errors.NewNotFoundError("Unit", ""))
+	case stderrors.Is(err, ErrUnitComplexMismatch):
+		errors.RespondError(w, nil, errors.NewValidationError(map[string][]string{
+			"unit_id": {"does not belong to the selected complex"},
+		}))
+	default:
+		errors.RespondError(w, nil, errors.NewInternalError(err))
 	}
-	errors.RespondError(w, nil, errors.NewInternalError(err))
 }
 
 // CreateQRCode handles POST /api/v1/access/qr-codes
@@ -64,9 +69,11 @@ func (h *Handler) CreateQRCode(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateQRCodeRequest
 	if err := errors.DecodeJSONLenient(r, &req); err != nil {
-		errors.RespondError(w, nil, errors.NewValidationError(map[string][]string{
-			"body": {"Invalid request body"},
-		}))
+		errors.RespondError(w, nil, err)
+		return
+	}
+	if fieldErrs := req.validate(); len(fieldErrs) > 0 {
+		errors.RespondError(w, nil, errors.NewValidationError(fieldErrs))
 		return
 	}
 
@@ -99,9 +106,11 @@ func (h *Handler) CreateQRBatch(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateQRBatchRequest
 	if err := errors.DecodeJSONLenient(r, &req); err != nil {
-		errors.RespondError(w, nil, errors.NewValidationError(map[string][]string{
-			"body": {"Invalid request body"},
-		}))
+		errors.RespondError(w, nil, err)
+		return
+	}
+	if fieldErrs := req.validate(); len(fieldErrs) > 0 {
+		errors.RespondError(w, nil, errors.NewValidationError(fieldErrs))
 		return
 	}
 
@@ -155,9 +164,11 @@ func (h *Handler) CreatePreAuth(w http.ResponseWriter, r *http.Request) {
 
 	var req CreatePreAuthRequest
 	if err := errors.DecodeJSONLenient(r, &req); err != nil {
-		errors.RespondError(w, nil, errors.NewValidationError(map[string][]string{
-			"body": {"Invalid request body"},
-		}))
+		errors.RespondError(w, nil, err)
+		return
+	}
+	if fieldErrs := req.validate(); len(fieldErrs) > 0 {
+		errors.RespondError(w, nil, errors.NewValidationError(fieldErrs))
 		return
 	}
 
@@ -211,9 +222,11 @@ func (h *Handler) CreateAccessGrant(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateAccessGrantRequest
 	if err := errors.DecodeJSONLenient(r, &req); err != nil {
-		errors.RespondError(w, nil, errors.NewValidationError(map[string][]string{
-			"body": {"Invalid request body"},
-		}))
+		errors.RespondError(w, nil, err)
+		return
+	}
+	if fieldErrs := req.validate(); len(fieldErrs) > 0 {
+		errors.RespondError(w, nil, errors.NewValidationError(fieldErrs))
 		return
 	}
 
@@ -312,15 +325,24 @@ func (h *Handler) ValidateAccessGrant(w http.ResponseWriter, r *http.Request) {
 
 	var req ValidateAccessRequest
 	if err := errors.DecodeJSONLenient(r, &req); err != nil {
-		errors.RespondError(w, nil, errors.NewValidationError(map[string][]string{
-			"body": {"Invalid request body"},
-		}))
+		errors.RespondError(w, nil, err)
 		return
 	}
 
 	result, err := h.service.ValidateAccess(ctx, req)
 	if err != nil {
-		errors.RespondError(w, nil, errors.NewInternalError(err))
+		switch {
+		case stderrors.Is(err, ErrComplexIDRequired):
+			errors.RespondError(w, nil, errors.NewValidationError(map[string][]string{
+				"X-Complex-ID": {"Missing or invalid complex ID"},
+			}))
+		case stderrors.Is(err, ErrQRCodeRequired), stderrors.Is(err, ErrVisitorIDRequired), stderrors.Is(err, ErrUnsupportedMethod):
+			errors.RespondError(w, nil, errors.NewValidationError(map[string][]string{
+				"body": {err.Error()},
+			}))
+		default:
+			errors.RespondError(w, nil, errors.NewInternalError(err))
+		}
 		return
 	}
 

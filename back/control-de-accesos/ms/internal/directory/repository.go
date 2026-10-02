@@ -20,16 +20,16 @@ func NewRepository(db *sql.DB) *Repository {
 }
 
 // GetUnitComplexID returns the complex a unit belongs to.
-func (r *Repository) GetUnitComplexID(ctx context.Context, unitID uuid.UUID) (uuid.UUID, error) {
+func (r *Repository) GetUnitComplexID(ctx context.Context, unitID uuid.UUID) (uuid.UUID, bool, error) {
 	var complexID uuid.UUID
 	err := r.db.QueryRowContext(ctx, `SELECT complex_id FROM units WHERE id = $1`, unitID).Scan(&complexID)
 	if err == sql.ErrNoRows {
-		return uuid.Nil, fmt.Errorf("unit not found")
+		return uuid.Nil, false, nil
 	}
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("failed to load unit: %w", err)
+		return uuid.Nil, false, fmt.Errorf("failed to load unit: %w", err)
 	}
-	return complexID, nil
+	return complexID, true, nil
 }
 
 // GetUnitName returns a unit's display name, used to enrich QR responses.

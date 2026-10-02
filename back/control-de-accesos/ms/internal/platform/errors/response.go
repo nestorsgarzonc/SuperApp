@@ -84,9 +84,7 @@ func DecodeJSONLenient(r *http.Request, target interface{}) error {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
-		return NewValidationError(map[string][]string{
-			"body": {"Invalid JSON format: " + err.Error()},
-		})
+		return NewBadRequestError("Invalid JSON: " + err.Error())
 	}
 
 	return nil

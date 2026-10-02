@@ -19,6 +19,15 @@ var ErrAccessGrantNotFound = errors.New("access grant not found or expired")
 // could otherwise read, mint or revoke a neighbor's grant.
 var ErrUnitAccessDenied = errors.New("you do not have access to this unit")
 
+var (
+	ErrUnitNotFound        = errors.New("unit not found")
+	ErrUnitComplexMismatch = errors.New("unit does not belong to the selected complex")
+	ErrComplexIDRequired   = errors.New("complex ID is required")
+	ErrQRCodeRequired      = errors.New("QR code is required for QR validation")
+	ErrVisitorIDRequired   = errors.New("visitor ID number is required for PRE_AUTH validation")
+	ErrUnsupportedMethod   = errors.New("unsupported validation method")
+)
+
 const (
 	StatusActive    = "ACTIVE"
 	StatusUsed      = "USED"
@@ -27,11 +36,20 @@ const (
 )
 
 const (
-	VisitorTypeDelivery = "DELIVERY"
-	VisitorTypeVisitor  = "VISITOR"
-	VisitorTypeService  = "SERVICE"
-	VisitorTypeGuest    = "GUEST"
+	VisitorTypeDelivery   = "DELIVERY"
+	VisitorTypeVisitor    = "VISITOR"
+	VisitorTypeService    = "SERVICE"
+	VisitorTypeContractor = "CONTRACTOR"
+	VisitorTypeGuest      = "GUEST"
 )
+
+var validVisitorTypes = map[string]bool{
+	VisitorTypeDelivery:   true,
+	VisitorTypeVisitor:    true,
+	VisitorTypeService:    true,
+	VisitorTypeContractor: true,
+	VisitorTypeGuest:      true,
+}
 
 type AccessGrant struct {
 	ID              uuid.UUID  `json:"id" db:"id"`
@@ -63,6 +81,26 @@ type CreateAccessGrantRequest struct {
 	ValidUntil      time.Time  `json:"valid_until" validate:"required"`
 }
 
+func (r CreateAccessGrantRequest) validate() map[string][]string {
+	errs := map[string][]string{}
+	if r.UnitID == uuid.Nil {
+		errs["unit_id"] = []string{"required"}
+	}
+	if r.Method != MethodQR && r.Method != MethodPreAuth {
+		errs["method"] = []string{"must be QR or PRE_AUTH"}
+	}
+	if !validVisitorTypes[r.VisitorType] {
+		errs["visitor_type"] = []string{"must be one of DELIVERY, VISITOR, SERVICE, CONTRACTOR, GUEST"}
+	}
+	if r.VisitorName == "" {
+		errs["visitor_name"] = []string{"required"}
+	}
+	if r.ValidUntil.IsZero() {
+		errs["valid_until"] = []string{"required"}
+	}
+	return errs
+}
+
 type CreateQRCodeRequest struct {
 	UnitID      uuid.UUID  `json:"unit_id" validate:"required"`
 	VisitorName *string    `json:"visitor_name,omitempty"`
@@ -70,11 +108,39 @@ type CreateQRCodeRequest struct {
 	ValidUntil  time.Time  `json:"valid_until" validate:"required"`
 }
 
+func (r CreateQRCodeRequest) validate() map[string][]string {
+	errs := map[string][]string{}
+	if r.UnitID == uuid.Nil {
+		errs["unit_id"] = []string{"required"}
+	}
+	if r.ValidUntil.IsZero() {
+		errs["valid_until"] = []string{"required"}
+	}
+	return errs
+}
+
 type CreateQRBatchRequest struct {
 	UnitID     uuid.UUID `json:"unit_id" validate:"required"`
 	Quantity   int       `json:"quantity" validate:"required,min=1,max=100"`
 	ValidFrom  time.Time `json:"valid_from" validate:"required"`
 	ValidUntil time.Time `json:"valid_until" validate:"required"`
+}
+
+func (r CreateQRBatchRequest) validate() map[string][]string {
+	errs := map[string][]string{}
+	if r.UnitID == uuid.Nil {
+		errs["unit_id"] = []string{"required"}
+	}
+	if r.Quantity < 1 || r.Quantity > 100 {
+		errs["quantity"] = []string{"must be between 1 and 100"}
+	}
+	if r.ValidFrom.IsZero() {
+		errs["valid_from"] = []string{"required"}
+	}
+	if r.ValidUntil.IsZero() {
+		errs["valid_until"] = []string{"required"}
+	}
+	return errs
 }
 
 type CreatePreAuthRequest struct {
@@ -85,6 +151,29 @@ type CreatePreAuthRequest struct {
 	ValidFrom       time.Time `json:"valid_from" validate:"required"`
 	ValidUntil      time.Time `json:"valid_until" validate:"required"`
 	Details         *string   `json:"details,omitempty"`
+}
+
+func (r CreatePreAuthRequest) validate() map[string][]string {
+	errs := map[string][]string{}
+	if r.UnitID == uuid.Nil {
+		errs["unit_id"] = []string{"required"}
+	}
+	if r.VisitorName == "" {
+		errs["visitor_name"] = []string{"required"}
+	}
+	if r.VisitorIDNumber == "" {
+		errs["visitor_id_number"] = []string{"required"}
+	}
+	if !validVisitorTypes[r.VisitorType] {
+		errs["visitor_type"] = []string{"must be one of DELIVERY, VISITOR, SERVICE, CONTRACTOR, GUEST"}
+	}
+	if r.ValidFrom.IsZero() {
+		errs["valid_from"] = []string{"required"}
+	}
+	if r.ValidUntil.IsZero() {
+		errs["valid_until"] = []string{"required"}
+	}
+	return errs
 }
 
 type AccessGrantResponse struct {
