@@ -47,22 +47,59 @@ type testRepositories interface {
 }
 
 type testApplication struct {
-	*Service
+	userManagement
+	sessionManagement
+	roleManagement
+	permissionManagement
+	authorizationManagement
 	login    *authlogin.UseCase
 	register *authregister.UseCase
 	refresh  *authrefresh.UseCase
 	logout   *authlogout.UseCase
 }
 
-func newTestApplication(repo testRepositories, passwords security.PasswordHasher, tokens security.TokenIssuer, ids security.IDGenerator, cfg contracts.Config) *testApplication {
+type userManagement interface {
+	GetUser(context.Context, users.GetRequester) (users.Presenter, error)
+	UpdateUser(context.Context, users.UpdateRequester) (users.UpdatePresenter, error)
+}
+type sessionManagement interface {
+	LogoutAll(context.Context, sessions.LogoutAllRequester) (sessions.LogoutAllPresenter, error)
+	ListSessions(context.Context, sessions.ListRequester) (sessions.ListPresenter, error)
+	RevokeSession(context.Context, sessions.RevokeParams) (sessions.RevokePresenter, error)
+}
+type roleManagement interface {
+	CreateRole(context.Context, roleusecase.CreateRequester) (roleusecase.Presenter, error)
+	UpdateRole(context.Context, roleusecase.UpdateRequester) (roleusecase.Presenter, error)
+	DeleteRole(context.Context, roleusecase.DeleteRequester) (roleusecase.DeletePresenter, error)
+	GetRole(context.Context, roleusecase.GetRequester) (roleusecase.Presenter, error)
+	ListRoles(context.Context, roleusecase.ListRequester) (roleusecase.ListPresenter, error)
+}
+type permissionManagement interface {
+	CreatePermission(context.Context, permissionusecase.CreateRequester) (permissionusecase.Presenter, error)
+	UpdatePermission(context.Context, permissionusecase.UpdateRequester) (permissionusecase.Presenter, error)
+	DeletePermission(context.Context, permissionusecase.DeleteRequester) (permissionusecase.DeletePresenter, error)
+	GetPermission(context.Context, permissionusecase.GetRequester) (permissionusecase.Presenter, error)
+	ListPermissions(context.Context, permissionusecase.ListRequester) (permissionusecase.ListPresenter, error)
+}
+type authorizationManagement interface {
+	CheckPermission(context.Context, authorizationusecase.CheckPermissionRequester) (authorizationusecase.CheckPermissionPresenter, error)
+	EffectivePermissions(context.Context, authorizationusecase.EffectivePermissionsRequester) (authorizationusecase.EffectivePermissionsPresenter, error)
+	EffectiveRoles(context.Context, authorizationusecase.EffectiveRolesRequester) (authorizationusecase.EffectiveRolesPresenter, error)
+	GrantPermission(context.Context, authorizationusecase.RolePermissionParams) (authorizationusecase.Presenter, error)
+	RevokePermission(context.Context, authorizationusecase.RolePermissionParams) (authorizationusecase.Presenter, error)
+	AssignRole(context.Context, authorizationusecase.AssignRoleParams) (authorizationusecase.Presenter, error)
+	RevokeRole(context.Context, authorizationusecase.RevokeRoleParams) (authorizationusecase.Presenter, error)
+}
+
+func newTestApplication(repo testRepositories, passwords *testPasswords, tokens testTokens, ids security.IDGenerator, cfg contracts.Config) *testApplication {
 	return &testApplication{
-		Service: New(RepositoryDependencies{
-			Users: repo, Sessions: repo, Roles: repo, Permissions: repo, Authorization: repo,
-		}, ids),
-		login:    authlogin.New(repo, repo, passwords, tokens, ids, cfg),
-		register: authregister.New(repo, passwords, ids),
-		refresh:  authrefresh.New(repo, tokens, ids, cfg),
-		logout:   authlogout.New(repo),
+		userManagement: users.New(repo), sessionManagement: sessions.New(repo),
+		roleManagement: roleusecase.New(repo, ids), permissionManagement: permissionusecase.New(repo, ids),
+		authorizationManagement: authorizationusecase.New(repo),
+		login:                   authlogin.New(repo, repo, passwords, tokens, ids, cfg),
+		register:                authregister.New(repo, passwords, ids),
+		refresh:                 authrefresh.New(repo, tokens, ids, cfg),
+		logout:                  authlogout.New(repo),
 	}
 }
 

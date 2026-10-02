@@ -15,13 +15,14 @@ func (s *Service) CreateRole(ctx context.Context, request CreateRequester) (Pres
 	if (r.Scope == "TENANT") != (r.TenantID != nil) {
 		return Presenter{}, fmt.Errorf("%w: system roles have no tenant; tenant roles require one", domain.ErrInvalidArgument)
 	}
-	if !domain.ValidRoleCode(r.Code) || strings.TrimSpace(r.Name) == "" || len(r.Name) > 100 || len(r.Description) > 500 {
-		return Presenter{}, fmt.Errorf("%w: role code, name, or description is invalid", domain.ErrInvalidArgument)
+	if !domain.ValidRoleCode(r.Code) {
+		return Presenter{}, fmt.Errorf("%w: role code is invalid", domain.ErrInvalidArgument)
+	}
+	if err := validateDetails(r); err != nil {
+		return Presenter{}, err
 	}
 	r.Enabled = true
-	if r.ID == "" {
-		r.ID = s.newID()
-	}
+	r.ID = s.newID()
 	if err := s.repository.CreateRole(ctx, r); err != nil {
 		return Presenter{}, err
 	}
@@ -65,8 +66,8 @@ func (s *Service) UpdateRole(ctx context.Context, request UpdateRequester) (Pres
 	if request.Enabled != nil {
 		role.Enabled = *request.Enabled
 	}
-	if strings.TrimSpace(role.Name) == "" || len(role.Name) > 100 || len(role.Description) > 500 {
-		return Presenter{}, fmt.Errorf("%w: role name or description is invalid", domain.ErrInvalidArgument)
+	if err := validateDetails(*role); err != nil {
+		return Presenter{}, err
 	}
 	if err := s.repository.UpdateRole(ctx, *role, request.TenantID); err != nil {
 		return Presenter{}, err
@@ -76,6 +77,13 @@ func (s *Service) UpdateRole(ctx context.Context, request UpdateRequester) (Pres
 
 func (s *Service) DeleteRole(ctx context.Context, request DeleteRequester) (DeletePresenter, error) {
 	return DeletePresenter{}, s.repository.DeleteRole(ctx, request.RoleID, request.TenantID)
+}
+
+func validateDetails(role domain.Role) error {
+	if strings.TrimSpace(role.Name) == "" || len(role.Name) > 100 || len(role.Description) > 500 {
+		return fmt.Errorf("%w: role name or description is invalid", domain.ErrInvalidArgument)
+	}
+	return nil
 }
 
 func present(role domain.Role) Presenter {

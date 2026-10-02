@@ -14,14 +14,14 @@ import (
 type UseCase struct {
 	users     repository.UserRepository
 	sessions  repository.SessionRepository
-	passwords security.PasswordHasher
-	tokens    security.TokenIssuer
+	passwords security.PasswordVerifier
+	tokens    security.TokenSigner
 	newID     security.IDGenerator
 	cfg       contracts.Config
 	now       func() time.Time
 }
 
-func New(users repository.UserRepository, sessions repository.SessionRepository, passwords security.PasswordHasher, tokens security.TokenIssuer, newID security.IDGenerator, cfg contracts.Config) *UseCase {
+func New(users repository.UserRepository, sessions repository.SessionRepository, passwords security.PasswordVerifier, tokens security.TokenSigner, newID security.IDGenerator, cfg contracts.Config) *UseCase {
 	return &UseCase{users: users, sessions: sessions, passwords: passwords, tokens: tokens, newID: newID, cfg: cfg, now: time.Now}
 }
 

@@ -7,14 +7,23 @@ type TokenClaims struct {
 	ExpiresAt                 time.Time
 }
 
-type TokenIssuer interface {
+type TokenSigner interface {
 	Issue(string, string, string) (string, time.Time, error)
+}
+
+type TokenVerifier interface {
 	Verify(string) (*TokenClaims, error)
+}
+
+type JWKSProvider interface {
 	JWKS() map[string]any
 }
 
 type PasswordHasher interface {
 	Hash(string) (string, error)
+}
+
+type PasswordVerifier interface {
 	Verify(string, string) error
 	Burn(string)
 }

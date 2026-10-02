@@ -2,7 +2,6 @@ package writer
 
 import (
 	"net/http"
-	"strings"
 	"superapp/auth/internal/core/domain"
 	appauthorization "superapp/auth/internal/core/usecases/authorization"
 	dtoAuth "superapp/auth/internal/presentation/dto/auth"
@@ -17,10 +16,6 @@ func (a *Handlers) createUser(w http.ResponseWriter, r *http.Request) {
 	}
 	request, ok := reader.RegisterRequest(w, r)
 	if !ok {
-		return
-	}
-	if strings.TrimSpace(request.Email) == "" || strings.TrimSpace(request.Name) == "" {
-		a.Fail(w, domain.ErrInvalidArgument)
 		return
 	}
 	result, err := a.Register.Execute(r.Context(), request)

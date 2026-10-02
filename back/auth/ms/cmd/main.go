@@ -12,12 +12,16 @@ import (
 	"time"
 
 	httpapi "superapp/auth/internal"
-	usecases "superapp/auth/internal/core/usecases"
 	"superapp/auth/internal/core/usecases/auth/login"
 	"superapp/auth/internal/core/usecases/auth/logout"
 	"superapp/auth/internal/core/usecases/auth/refresh"
 	"superapp/auth/internal/core/usecases/auth/register"
+	"superapp/auth/internal/core/usecases/authorization"
 	"superapp/auth/internal/core/usecases/contracts"
+	"superapp/auth/internal/core/usecases/permissions"
+	"superapp/auth/internal/core/usecases/roles"
+	"superapp/auth/internal/core/usecases/sessions"
+	"superapp/auth/internal/core/usecases/users"
 	database "superapp/auth/internal/infrastructure/persistence/postgres"
 	pgadapter "superapp/auth/internal/infrastructure/repository/postgres"
 	"superapp/auth/internal/infrastructure/security/jwt"
@@ -42,16 +46,14 @@ func main() {
 		log.Fatal(err)
 	}
 	repo := pgadapter.New(db)
-	service := usecases.New(usecases.RepositoryDependencies{
-		Users: repo, Sessions: repo, Roles: repo, Permissions: repo, Authorization: repo,
-	}, uuid.NewString)
 	services := httpshared.Services{
 		Login:    login.New(repo, repo, password.Passwords{}, tokens, uuid.NewString, contracts.Config{AccessTTL: cfg.accessTTL, RefreshTTL: cfg.refreshTTL}),
 		Register: register.New(repo, password.Passwords{}, uuid.NewString),
 		Refresh:  refresh.New(repo, tokens, uuid.NewString, contracts.Config{AccessTTL: cfg.accessTTL, RefreshTTL: cfg.refreshTTL}),
-		Logout:   logout.New(repo), Tokens: tokens,
-		Users: service, Sessions: service,
-		Roles: service, Permissions: service, Authorization: service,
+		Logout:   logout.New(repo), TokenVerifier: tokens, JWKS: tokens,
+		Users: users.New(repo), Sessions: sessions.New(repo),
+		Roles: roles.New(repo, uuid.NewString), Permissions: permissions.New(repo, uuid.NewString),
+		Authorization: authorization.New(repo),
 	}
 	server := &http.Server{Addr: cfg.addr, Handler: httpapi.New(services, cfg.gatewayTenantSecret), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 

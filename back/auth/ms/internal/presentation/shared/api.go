@@ -26,8 +26,11 @@ type RefreshUseCase interface {
 type LogoutUseCase interface {
 	Execute(context.Context, logout.Requester) (logout.Presenter, error)
 }
-type TokenReader interface {
+type TokenVerifier interface {
 	Verify(string) (*security.TokenClaims, error)
+}
+
+type JWKSProvider interface {
 	JWKS() map[string]any
 }
 
@@ -73,7 +76,8 @@ type Services struct {
 	Register      RegisterUseCase
 	Refresh       RefreshUseCase
 	Logout        LogoutUseCase
-	Tokens        TokenReader
+	TokenVerifier TokenVerifier
+	JWKS          JWKSProvider
 	Users         UserService
 	Sessions      SessionService
 	Roles         RoleService
@@ -86,7 +90,8 @@ type API struct {
 	Register      RegisterUseCase
 	Refresh       RefreshUseCase
 	Logout        LogoutUseCase
-	Tokens        TokenReader
+	TokenVerifier TokenVerifier
+	JWKS          JWKSProvider
 	Users         UserService
 	Sessions      SessionService
 	Roles         RoleService
@@ -99,8 +104,8 @@ type Identity struct{ UserID, Email, SessionID string }
 func New(services Services, secret []byte) *API {
 	return &API{
 		Login: services.Login, Register: services.Register, Refresh: services.Refresh,
-		Logout: services.Logout,
-		Tokens: services.Tokens, Users: services.Users, Sessions: services.Sessions,
+		Logout:        services.Logout,
+		TokenVerifier: services.TokenVerifier, JWKS: services.JWKS, Users: services.Users, Sessions: services.Sessions,
 		Roles: services.Roles, Permissions: services.Permissions,
 		Authorization: services.Authorization, TenantSecret: secret,
 	}

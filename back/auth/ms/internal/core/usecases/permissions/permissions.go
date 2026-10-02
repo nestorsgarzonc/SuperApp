@@ -8,12 +8,10 @@ import (
 
 func (s *Service) CreatePermission(ctx context.Context, request CreateRequester) (Presenter, error) {
 	p := domain.Permission{Code: request.Code, Description: request.Description}
-	if !domain.ValidPermissionCode(p.Code) || len(p.Description) > 500 {
-		return Presenter{}, fmt.Errorf("%w: permission code or description is invalid", domain.ErrInvalidArgument)
+	if err := validate(p); err != nil {
+		return Presenter{}, err
 	}
-	if p.ID == "" {
-		p.ID = s.newID()
-	}
+	p.ID = s.newID()
 	if err := s.repository.CreatePermission(ctx, p); err != nil {
 		return Presenter{}, err
 	}
@@ -54,8 +52,8 @@ func (s *Service) UpdatePermission(ctx context.Context, request UpdateRequester)
 	if request.Description != nil {
 		permission.Description = *request.Description
 	}
-	if !domain.ValidPermissionCode(permission.Code) || len(permission.Description) > 500 {
-		return Presenter{}, fmt.Errorf("%w: permission code or description is invalid", domain.ErrInvalidArgument)
+	if err := validate(*permission); err != nil {
+		return Presenter{}, err
 	}
 	if err := s.repository.UpdatePermission(ctx, *permission); err != nil {
 		return Presenter{}, err
@@ -65,6 +63,13 @@ func (s *Service) UpdatePermission(ctx context.Context, request UpdateRequester)
 
 func (s *Service) DeletePermission(ctx context.Context, request DeleteRequester) (DeletePresenter, error) {
 	return DeletePresenter{}, s.repository.DeletePermission(ctx, request.PermissionID)
+}
+
+func validate(permission domain.Permission) error {
+	if !domain.ValidPermissionCode(permission.Code) || len(permission.Description) > 500 {
+		return fmt.Errorf("%w: permission code or description is invalid", domain.ErrInvalidArgument)
+	}
+	return nil
 }
 
 func present(permission domain.Permission) Presenter {

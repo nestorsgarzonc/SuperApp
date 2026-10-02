@@ -12,13 +12,13 @@ import (
 
 type UseCase struct {
 	sessions repository.SessionRepository
-	tokens   security.TokenIssuer
+	tokens   security.TokenSigner
 	newID    security.IDGenerator
 	cfg      contracts.Config
 	now      func() time.Time
 }
 
-func New(sessions repository.SessionRepository, tokens security.TokenIssuer, newID security.IDGenerator, cfg contracts.Config) *UseCase {
+func New(sessions repository.SessionRepository, tokens security.TokenSigner, newID security.IDGenerator, cfg contracts.Config) *UseCase {
 	return &UseCase{sessions: sessions, tokens: tokens, newID: newID, cfg: cfg, now: time.Now}
 }
 
