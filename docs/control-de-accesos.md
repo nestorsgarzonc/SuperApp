@@ -233,7 +233,7 @@ una persona en ambos conjuntos, tokens manipulados, bitácora). Reiniciar los
 datos de prueba antes de cada corrida (consume pases de un solo uso):
 
 ```bash
-node test/isolation.mjs                      # BASE=http://localhost:8081/api/v1 por defecto
+JWT_SECRET=<el del ms> node test/isolation.mjs                      # BASE=http://localhost:8081/api/v1 por defecto
 cd ms && go test ./...                       # validaciones de accesslog + middleware de personal
 ```
 

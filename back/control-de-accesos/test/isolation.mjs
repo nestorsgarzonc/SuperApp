@@ -2,7 +2,8 @@
 import crypto from 'node:crypto';
 
 const B = process.env.BASE ?? 'http://localhost:8081/api/v1';
-const SECRET = 'dev_jwt_secret_change_in_production_min_32_chars';
+const SECRET = process.env.JWT_SECRET; // mismo valor que usa el ms
+if (!SECRET) { console.error('Set JWT_SECRET (same value the ms runs with)'); process.exit(1); }
 const C1 = '00000000-0000-0000-0000-000000000001'; // Los Pinos
 const C2 = '00000000-0000-0000-0000-000000000002'; // Alto del Bosque
 let fails = 0, total = 0;

@@ -40,7 +40,7 @@ func Load() Config {
 		DBHost:         getEnv("DB_HOST", "localhost"),
 		DBPort:         getEnv("DB_PORT", "5432"),
 		DBUser:         getEnv("DB_USER", "control_de_accesos"),
-		DBPassword:     getEnv("DB_PASSWORD", "control_de_accesos"),
+		DBPassword:     getEnv("DB_PASSWORD", ""),
 		DBName:         getEnv("DB_NAME", "control_de_accesos"),
 		DBSSLMode:      getEnv("DB_SSLMODE", "disable"),
 		DBSSLRootCert:  getEnv("DB_SSLROOTCERT", ""),

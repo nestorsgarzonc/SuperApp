@@ -89,7 +89,7 @@ docker compose exec -T db psql -U control_de_accesos -d postgres -c "CREATE DATA
 for f in db/migrations/*.sql db/seeds/*.sql; do docker compose exec -T db psql -U control_de_accesos -d cda_test -q < "$f"; done
 # ms de pruebas en :8082 apuntando a cda_test (ver docker-compose.yml para las variables DB_*)
 # front de pruebas en :5174:  ACCESS_URL=http://localhost:8082 npm run dev -- --port 5174 --strictPort
-# y las pruebas:  BASE=http://localhost:8082/api/v1 node test/isolation.mjs   |   APP_URL=http://localhost:5174 npm run e2e
+# y las pruebas:  BASE=http://localhost:8082/api/v1 JWT_SECRET=<el del ms> node test/isolation.mjs   |   APP_URL=http://localhost:5174 npm run e2e
 # reset de esa base:  PSQL_CMD="docker compose exec -T db psql -U control_de_accesos -d cda_test -q" ./test/reset_data.sh
 ```
 
