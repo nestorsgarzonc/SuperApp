@@ -23,10 +23,34 @@ unidad/complejo" (en el monolito vivía en `tenancy`/`identity`). Sembrada en
 
 `ms/internal/notifier`: `POST` best-effort a `NOTIFICATIONS_URL` en cada
 creación/validación/cancelación de grant. Vacío o con error → no-op, no
-bloquea la operación.
+bloquea la operación. *(Esquema de eventos — nombres, `eventId`/`correlationId`,
+retry+DLQ — pendiente de rediseño, ver sección "Pendiente".)*
+
+`ms/internal/audit`: tabla `audit_log` append-only (triggers `BEFORE UPDATE/DELETE`
+que rechazan la operación a nivel de base de datos, no solo por disciplina de
+código). Se escribe un registro en cada creación, cancelación y validación
+(exitosa o denegada) de un grant, y en cada intento cross-tenant.
 
 `/api/v1/dev/token` (solo `ENV=development`): firma un JWT demo con el mismo
-formato (HS256, mismo secreto) que emitiría `back/auth`.
+formato (HS256, mismo secreto) que emitiría `back/auth`. Acepta `?role=GUARD`
+(o `ADMIN`) para probar endpoints restringidos por rol — por defecto emite
+`RESIDENT`.
+
+## Reglas de negocio
+
+- **Solo `GUARD`/`ADMIN` pueden validar** (`POST /access-grants/validate`) — un
+  `RESIDENT` recibe `403`.
+- **Todo grant es de un solo uso**: se marca `USED` atómicamente en la primera
+  validación exitosa. Validar el mismo QR/PRE_AUTH una segunda vez devuelve
+  `valid:false` ("Access grant has already been used").
+- **QR tiene tope de 12h desde su creación**, sin importar qué `valid_until`
+  pida el residente (gana lo que ocurra primero). `PRE_AUTH` no tiene este tope.
+- **Fechas**: `valid_until` no puede estar en el pasado, y si se envía
+  `valid_from`, debe ser anterior a `valid_until`. Si no, `422`.
+- **Longitudes máximas**: `visitor_name` 200, `visitor_id_number` 50,
+  `details` 1000 caracteres. Si no, `422`.
+- **conjuntoId siempre viene del JWT**, nunca de `?complex_id=` ni de
+  `X-Complex-ID` — un valor en el query/header se ignora por completo.
 
 ## Levantarlo en local
 
@@ -34,6 +58,7 @@ Requiere Docker Desktop (no hace falta tener Go instalado).
 
 ```bash
 cd back/control-de-accesos
+cp .env.example .env   # primera vez: JWT_SECRET y DB_PASSWORD, nunca committeado
 docker compose up --build
 ```
 
@@ -54,10 +79,12 @@ curl http://localhost:8081/api/v1/dev/token
 ```
 
 Devuelve `token`, `complex_id` y `unit_id` del usuario demo (residente de la
-unidad `A-101`). Guárdalo en una variable:
+unidad `A-101`). Guárdalo en una variable. Para `/access-grants/validate`
+(paso 5 y 6) hace falta además un token con rol `GUARD`:
 
 ```bash
 TOKEN=$(curl -s http://localhost:8081/api/v1/dev/token | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+GUARD_TOKEN=$(curl -s "http://localhost:8081/api/v1/dev/token?role=GUARD" | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
 COMPLEX_ID=00000000-0000-0000-0000-000000000001
 UNIT_ID=10000000-0000-0000-0000-000000000101
 ```
@@ -96,11 +123,14 @@ curl -s -X POST http://localhost:8081/api/v1/access/pre-auth \
 
 ### 5. Validar un QR en portería (el guardia escanea)
 
-El seed incluye un QR activo con hash fijo `demo-qr-hash-0001`:
+Requiere un token con rol `GUARD`/`ADMIN` (un `RESIDENT` recibe `403`). El
+seed incluye un QR activo con hash fijo `demo-qr-hash-0001` — **se consume**
+en la primera validación exitosa (un solo uso); validarlo de nuevo después
+devuelve `valid:false`:
 
 ```bash
 curl -s -X POST http://localhost:8081/api/v1/access-grants/validate \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GUARD_TOKEN" \
   -H "X-Complex-ID: $COMPLEX_ID" \
   -H "Content-Type: application/json" \
   -d '{"method":"QR","qr_code":"demo-qr-hash-0001"}' \
@@ -111,7 +141,7 @@ curl -s -X POST http://localhost:8081/api/v1/access-grants/validate \
 
 ```bash
 curl -s -X POST http://localhost:8081/api/v1/access-grants/validate \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $GUARD_TOKEN" \
   -H "X-Complex-ID: $COMPLEX_ID" \
   -H "Content-Type: application/json" \
   -d '{"method":"PRE_AUTH","visitor_id_number":"COL123456"}' \
@@ -147,10 +177,13 @@ cd back/control-de-accesos
 BASE_URL=http://localhost:8080 ./test/smoke_test.sh
 ```
 
-Recorre los 10 endpoints (happy path + JSON malformado, campos faltantes,
-enums inválidos, recurso inexistente, UUID inválido, método no permitido,
-auth faltante) y compara el código HTTP esperado contra el real. Necesita
-una base recién migrada/sembrada (usa IDs del seed y cancela un grant).
+39 checks sobre los 10 endpoints: happy path, JSON malformado, campos
+faltantes, enums inválidos, fechas inválidas/longitud excedida, recurso
+inexistente, UUID inválido, método no permitido, auth faltante, rol
+incorrecto (`RESIDENT` contra `/validate` → 403), aislamiento de tenant
+(`?complex_id=` ajeno se ignora) y consumo de un solo uso (mismo QR
+validado dos veces). Necesita una base recién migrada/sembrada (usa IDs
+del seed, cancela un grant y consume el QR semilla).
 
 Para ver los eventos que dispara `internal/notifier` (sin montar el
 microservicio de notificaciones real):
@@ -177,20 +210,20 @@ DB_SSLMODE=require ./db/migrate.sh
 
 ## Endpoints
 
-| Método | Ruta | Descripción |
-|---|---|---|
-| POST | `/api/v1/access/qr-codes` | Crear QR |
-| POST | `/api/v1/access/qr-codes/batch` | Crear varios QR |
-| GET | `/api/v1/access/qr-codes` | Listar QR del complejo |
-| POST | `/api/v1/access/pre-auth` | Crear pre-autorización |
-| GET | `/api/v1/access/pre-auth` | Listar pre-autorizaciones |
-| POST | `/api/v1/access-grants` | Crear grant genérico (QR o PRE_AUTH) |
-| GET | `/api/v1/access-grants/{id}` | Obtener un grant |
-| PATCH | `/api/v1/access-grants/{id}/cancel` | Cancelar un grant |
-| POST | `/api/v1/access-grants/validate` | Validar QR/PRE_AUTH (uso del guardia) |
-| GET | `/api/v1/units/{unitId}/access-grants` | Grants de una unidad |
-| GET | `/api/v1/dev/token` | *(solo dev)* token demo |
-| GET | `/healthz` | Health check |
+| Método | Ruta | Rol | Descripción |
+|---|---|---|---|
+| POST | `/api/v1/access/qr-codes` | autenticado + dueño de la unidad | Crear QR (tope 12h) |
+| POST | `/api/v1/access/qr-codes/batch` | autenticado + dueño de la unidad | Crear varios QR (tope 12h c/u) |
+| GET | `/api/v1/access/qr-codes` | autenticado | Listar QR del complejo (del token) |
+| POST | `/api/v1/access/pre-auth` | autenticado + dueño de la unidad | Crear pre-autorización |
+| GET | `/api/v1/access/pre-auth` | autenticado | Listar pre-autorizaciones |
+| POST | `/api/v1/access-grants` | autenticado + dueño de la unidad | Crear grant genérico (QR o PRE_AUTH) |
+| GET | `/api/v1/access-grants/{id}` | autenticado + dueño de la unidad | Obtener un grant |
+| PATCH | `/api/v1/access-grants/{id}/cancel` | autenticado + dueño de la unidad | Cancelar un grant |
+| POST | `/api/v1/access-grants/validate` | **`GUARD`/`ADMIN` únicamente** | Validar QR/PRE_AUTH (consume el grant) |
+| GET | `/api/v1/units/{unitId}/access-grants` | autenticado + miembro de la unidad | Grants de una unidad |
+| GET | `/api/v1/dev/token` | ninguno | *(solo dev)* token demo, `?role=` opcional |
+| GET | `/healthz` | ninguno | Health check |
 
 ## Eventos salientes (hacia `notificaciones`, cuando exista)
 
@@ -205,3 +238,10 @@ DB_SSLMODE=require ./db/migrate.sh
 | `access.grant_cancelled` | `CancelAccessGrant` |
 
 Payload: `{type, complex_id, unit_id, grant_id, visitor_name, method}`.
+
+## Pendiente
+
+- Nombres/forma del evento no son `AccessGranted`/`AccessDenied`/`VisitorEntered`/`VisitorExited`
+  ni llevan `eventId`/`correlationId`/`schemaVersion`; tampoco hay retry/DLQ —
+  rediseño de `internal/notifier` pendiente para una sesión aparte, ya que
+  cambia el contrato que `notificaciones` tendría que consumir.
