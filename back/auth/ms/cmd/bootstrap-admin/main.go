@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"golang.org/x/crypto/bcrypt"
-	"superapp/auth/internal/domain"
+	"superapp/auth/internal/core/domain"
 )
 
 func main() {
