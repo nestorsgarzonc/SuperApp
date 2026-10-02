@@ -1,9 +1,6 @@
-// Package notifier is the outbound edge of the "evento de acceso" arrow in
-// SuperApp/docs/architecture.md: control-de-accesos fires access events at
-// the notificaciones microservice. That service doesn't exist yet, so this
-// client is best-effort by design — if NOTIFICATIONS_URL is unset or the
-// request fails, the event is dropped (logged) and the access operation that
-// triggered it is never affected.
+// Package notifier posts access events to an external HTTP endpoint,
+// best-effort: if the URL is unset or the request fails, the event is
+// dropped (logged) and the caller is never affected.
 package notifier
 
 import (
@@ -52,8 +49,7 @@ func New(url string, logger *slog.Logger) *Client {
 }
 
 // Notify fires the event in the background and never blocks the caller or
-// surfaces an error — notificaciones being absent or unreachable is expected
-// until that microservice is built.
+// surfaces an error.
 func (c *Client) Notify(ctx context.Context, event Event) {
 	if c.url == "" {
 		return

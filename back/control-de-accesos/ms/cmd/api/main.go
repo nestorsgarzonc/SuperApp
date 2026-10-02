@@ -66,8 +66,6 @@ func main() {
 
 	dir := directory.NewRepository(db.DB)
 	accessRepo := access.NewPostgresRepository(db.DB)
-	// notifierClient is a no-op until NOTIFICATIONS_URL points at a running
-	// notificaciones microservice — see internal/notifier.
 	notifierClient := notifier.New(cfg.NotificationsURL, logger)
 	accessService := access.NewService(accessRepo, dir, dir, notifierClient, logger)
 	accessHandler := access.NewHandler(accessService)
@@ -105,9 +103,8 @@ func main() {
 	}
 }
 
-// devTokenHandler issues a bearer token for the seeded demo resident, so the
-// service can be exercised end-to-end locally without a separate auth
-// microservice. Only mounted when ENV=development.
+// devTokenHandler issues a bearer token for the seeded demo resident.
+// Only mounted when ENV=development.
 func devTokenHandler(w http.ResponseWriter, r *http.Request) {
 	token, err := authmw.GenerateJWT(demoUserID, demoUserEmail, demoUserRole, demoComplexID)
 	if err != nil {

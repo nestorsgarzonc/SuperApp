@@ -10,14 +10,13 @@ import (
 )
 
 type PostgresConfig struct {
-	Host            string
-	Port            int
-	User            string
-	Password        string
-	Database        string
-	SSLMode         string
-	// SSLRootCert, when set, points at a CA bundle (e.g. RDS's
-	// global-bundle.pem) so sslmode=verify-full can validate the server cert.
+	Host     string
+	Port     int
+	User     string
+	Password string
+	Database string
+	SSLMode  string
+	// SSLRootCert, when set, points at a CA bundle for sslmode=verify-full.
 	SSLRootCert     string
 	MaxOpenConns    int
 	MaxIdleConns    int

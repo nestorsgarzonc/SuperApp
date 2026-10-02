@@ -17,7 +17,6 @@ import (
 	authmw "controldeaccesos/internal/platform/middleware"
 )
 
-// Service defines business logic for access control operations.
 type Service interface {
 	CreateQRCode(ctx context.Context, complexID uuid.UUID, createdBy uuid.UUID, req CreateQRCodeRequest) (*AccessGrantResponse, error)
 	CreateQRBatch(ctx context.Context, complexID uuid.UUID, createdBy uuid.UUID, req CreateQRBatchRequest) ([]*AccessGrant, error)
@@ -38,17 +37,13 @@ type UnitMembershipChecker interface {
 	IsUserAssociatedWithUnit(ctx context.Context, userID, unitID uuid.UUID) (bool, error)
 }
 
-// DirectoryRepository resolves the handful of unit/user facts the access
-// feature needs (unit ownership, display names) from this service's own
-// local directory read-model.
 type DirectoryRepository interface {
 	GetUnitComplexID(ctx context.Context, unitID uuid.UUID) (uuid.UUID, error)
 	GetUnitName(ctx context.Context, unitID uuid.UUID) (string, error)
 	GetUserDisplayName(ctx context.Context, userID uuid.UUID) (string, error)
 }
 
-// Notifier fires access events at the (future) notificaciones microservice.
-// Best-effort: implementations must never block or fail the caller.
+// Implementations must never block or fail the caller.
 type Notifier interface {
 	Notify(ctx context.Context, event notifier.Event)
 }
@@ -87,8 +82,6 @@ func (s *service) assertUnitAccess(ctx context.Context, userID, unitID uuid.UUID
 	return nil
 }
 
-// notify fires a best-effort access event at the notificaciones microservice.
-// No-op when s.notifier is nil (e.g. unit tests) or NOTIFICATIONS_URL is unset.
 func (s *service) notify(ctx context.Context, eventType string, grant *AccessGrant) {
 	if s.notifier == nil || grant == nil {
 		return
@@ -114,7 +107,6 @@ func (s *service) validateUnitBelongsToComplex(ctx context.Context, complexID, u
 	return nil
 }
 
-// CreateQRCode creates a single QR code access grant.
 func (s *service) CreateQRCode(ctx context.Context, complexID uuid.UUID, createdBy uuid.UUID, req CreateQRCodeRequest) (*AccessGrantResponse, error) {
 	if err := s.validateUnitBelongsToComplex(ctx, complexID, req.UnitID); err != nil {
 		return nil, err
@@ -169,7 +161,6 @@ func (s *service) CreateQRCode(ctx context.Context, complexID uuid.UUID, created
 	}, nil
 }
 
-// generateQRDataURL generates a Base64 encoded PNG data URL for the QR code.
 func (s *service) generateQRDataURL(content string) (string, error) {
 	q, err := qrcode.New(content, qrcode.Medium)
 	if err != nil {
@@ -187,7 +178,6 @@ func (s *service) generateQRDataURL(content string) (string, error) {
 	return fmt.Sprintf("data:image/png;base64,%s", encoded), nil
 }
 
-// CreateQRBatch creates multiple QR codes at once.
 func (s *service) CreateQRBatch(ctx context.Context, complexID uuid.UUID, createdBy uuid.UUID, req CreateQRBatchRequest) ([]*AccessGrant, error) {
 	if err := s.validateUnitBelongsToComplex(ctx, complexID, req.UnitID); err != nil {
 		return nil, err
@@ -219,13 +209,11 @@ func (s *service) CreateQRBatch(ctx context.Context, complexID uuid.UUID, create
 	return grants, nil
 }
 
-// GetQRCodes retrieves all QR code grants for a complex.
 func (s *service) GetQRCodes(ctx context.Context, complexID uuid.UUID) ([]*AccessGrant, error) {
 	method := MethodQR
 	return s.repo.GetComplexAccessGrants(ctx, complexID, &method, nil)
 }
 
-// CreatePreAuth creates a pre-authorization access grant.
 func (s *service) CreatePreAuth(ctx context.Context, complexID uuid.UUID, createdBy uuid.UUID, req CreatePreAuthRequest) (*AccessGrant, error) {
 	if err := s.validateUnitBelongsToComplex(ctx, complexID, req.UnitID); err != nil {
 		return nil, err
@@ -251,13 +239,11 @@ func (s *service) CreatePreAuth(ctx context.Context, complexID uuid.UUID, create
 	return grant, nil
 }
 
-// GetPreAuthorizations retrieves all pre-auth grants for a complex.
 func (s *service) GetPreAuthorizations(ctx context.Context, complexID uuid.UUID) ([]*AccessGrant, error) {
 	method := MethodPreAuth
 	return s.repo.GetComplexAccessGrants(ctx, complexID, &method, nil)
 }
 
-// CreateAccessGrant creates a generic access grant (supports both QR and PRE_AUTH).
 // IDOR guard #1: the body's unit_id must belong to the caller's complex.
 // IDOR guard #2: the caller must be associated with that unit — complex scope
 // alone is not enough, since any complex member could otherwise mint a grant
@@ -277,10 +263,10 @@ func (s *service) CreateAccessGrant(ctx context.Context, complexID uuid.UUID, cr
 	return grant, nil
 }
 
-// GetAccessGrant retrieves an access grant by ID. The caller must be in the
-// grant's complex AND associated with its target unit: the payload carries the
-// visitor's ID number (the PRE_AUTH entry credential) and the QR hash, so
-// complex scope alone would let any member read a neighbor's grant by id.
+// The caller must be in the grant's complex AND associated with its target
+// unit: the payload carries the visitor's ID number (the PRE_AUTH entry
+// credential) and the QR hash, so complex scope alone would let any member
+// read a neighbor's grant by id.
 func (s *service) GetAccessGrant(ctx context.Context, complexID uuid.UUID, userID uuid.UUID, id uuid.UUID) (*AccessGrant, error) {
 	grant, err := s.repo.GetAccessGrant(ctx, id)
 	if err != nil {
@@ -295,9 +281,9 @@ func (s *service) GetAccessGrant(ctx context.Context, complexID uuid.UUID, userI
 	return grant, nil
 }
 
-// CancelAccessGrant cancels an access grant. The unit is read from the stored
-// grant (never from the client) and the caller must be associated with it,
-// otherwise any complex member could revoke a neighbor's access.
+// The unit is read from the stored grant (never from the client) and the
+// caller must be associated with it, otherwise any complex member could
+// revoke a neighbor's access.
 func (s *service) CancelAccessGrant(ctx context.Context, complexID uuid.UUID, userID uuid.UUID, id uuid.UUID) error {
 	grant, err := s.repo.GetAccessGrant(ctx, id)
 	if err != nil {
@@ -316,7 +302,6 @@ func (s *service) CancelAccessGrant(ctx context.Context, complexID uuid.UUID, us
 	return nil
 }
 
-// ValidateAccess validates a QR code or PRE_AUTH access request.
 func (s *service) ValidateAccess(ctx context.Context, req ValidateAccessRequest) (*ValidateAccessResponse, error) {
 	complexID, err := authmw.GetComplexIDAsUUID(ctx)
 	if err != nil {
@@ -389,7 +374,6 @@ func (s *service) ValidateAccess(ctx context.Context, req ValidateAccessRequest)
 	}, nil
 }
 
-// GetUnitAccessGrants retrieves access grants for a specific unit.
 func (s *service) GetUnitAccessGrants(ctx context.Context, unitID uuid.UUID, status *string) ([]*AccessGrant, error) {
 	return s.repo.GetUnitAccessGrants(ctx, unitID, status)
 }

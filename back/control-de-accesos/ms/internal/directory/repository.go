@@ -1,10 +1,6 @@
 // Package directory holds this microservice's own local read-model of who
-// belongs to which unit/complex. In the original monolith this came from the
-// shared tenancy/identity features; a standalone access-control service
-// doesn't share their database, so it keeps a minimal copy of just the
-// membership facts it needs to enforce access (seeded here for local dev;
-// in a real deployment it would be synced from the identity service via
-// events).
+// belongs to which unit/complex, since it doesn't share a database with
+// whatever service owns that data.
 package directory
 
 import (
