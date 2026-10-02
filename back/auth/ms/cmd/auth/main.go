@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"superapp/auth/internal/application"
-	"superapp/auth/internal/infrastructure/config"
 	"superapp/auth/internal/infrastructure/ids"
 	"superapp/auth/internal/infrastructure/persistence/postgres"
 	"superapp/auth/internal/infrastructure/security"
@@ -23,11 +22,11 @@ import (
 )
 
 func main() {
-	cfg, err := config.Load()
+	cfg, err := loadConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
-	db, err := sql.Open("pgx", cfg.DatabaseURL)
+	db, err := sql.Open("pgx", cfg.databaseURL)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -36,12 +35,12 @@ func main() {
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
-	tokens, err := security.LoadTokens(cfg.JWTPrivateKeyFile, cfg.JWTIssuer, cfg.JWTAuthAudience, cfg.AccessTTL)
+	tokens, err := security.LoadTokens(cfg.jwtPrivateKeyFile, cfg.jwtIssuer, cfg.jwtAuthAudience, cfg.accessTTL)
 	if err != nil {
 		log.Fatal(err)
 	}
-	service := application.New(postgres.New(db), security.Passwords{}, tokens, ids.UUID{}, application.Config{AccessTTL: cfg.AccessTTL, RefreshTTL: cfg.RefreshTTL})
-	server := &http.Server{Addr: cfg.Addr, Handler: httpapi.New(service, cfg.GatewayTenantSecret), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
+	service := application.New(postgres.New(db), security.Passwords{}, tokens, ids.UUID{}, application.Config{AccessTTL: cfg.accessTTL, RefreshTTL: cfg.refreshTTL})
+	server := &http.Server{Addr: cfg.addr, Handler: httpapi.New(service, cfg.gatewayTenantSecret), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -54,7 +53,7 @@ func main() {
 		}
 	}()
 
-	log.Printf("Auth MS listening on %s", cfg.Addr)
+	log.Printf("Auth MS listening on %s", cfg.addr)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(fmt.Errorf("serve Auth MS: %w", err))
 	}
