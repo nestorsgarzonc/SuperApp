@@ -74,7 +74,8 @@ SuperApp/
 │       └── shared/              # código común entre módulos
 ├── infra/
 └── docs/
-    └── architecture.md
+    ├── architecture.md
+    └── control-de-accesos.md
 ```
 
 ## Componentes
@@ -84,7 +85,7 @@ SuperApp/
 | `front` | Aplicación única; un módulo de UI por feature | `api-gateway` |
 | `back/api-gateway` | Punto de entrada único: enrutamiento, validación de token, rate limiting. Sin base de datos. | `auth` |
 | `back/auth` | Identidad, credenciales, emisión y validación de tokens | — |
-| `back/control-de-accesos` | Permisos, roles y registro de entradas/salidas | `auth` |
+| [`back/control-de-accesos`](control-de-accesos.md) | Permisos, roles y registro de entradas/salidas | `auth` |
 | `back/notificaciones` | Envío y bitácora de notificaciones (email, push, SMS) | `auth`, `control-de-accesos` |
 
 ## Convenciones
