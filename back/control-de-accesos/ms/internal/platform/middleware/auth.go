@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	apperrors "controldeaccesos/internal/platform/errors"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -245,10 +247,69 @@ func RequireRoleMiddleware(allowedRoles ...string) func(http.Handler) http.Handl
 	}
 }
 
-func respondWithError(w http.ResponseWriter, code int, message string) {
+// RequireStaffMiddleware allows the request only when the role claim is one of
+// allowedRoles AND the user is registered as that role for the complex of this
+// request. Must run after RequireComplexAccessMiddleware (it reads the
+// resolved complex from the context).
+func RequireStaffMiddleware(checker StaffChecker, allowedRoles ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			role := GetUserRole(r.Context())
+			allowed := false
+			for _, a := range allowedRoles {
+				if role == a {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				respondWithError(w, http.StatusForbidden, "your role does not have access to this operation")
+				return
+			}
+			userID, err := GetUserIDAsUUID(r.Context())
+			if err != nil {
+				respondWithError(w, http.StatusUnauthorized, "authentication required")
+				return
+			}
+			complexID, err := GetComplexIDAsUUID(r.Context())
+			if err != nil {
+				respondWithError(w, http.StatusBadRequest, "complex ID is required")
+				return
+			}
+			ok, err := checker.IsStaffOfComplex(r.Context(), userID, complexID, role)
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, "failed to verify staff access")
+				return
+			}
+			if !ok {
+				respondWithError(w, http.StatusForbidden, "you are not "+role+" of this complex")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// respondWithError writes the same {success,error:{code,message}} envelope the
+// handlers use, so clients parse a single error shape.
+func respondWithError(w http.ResponseWriter, status int, message string) {
+	code := apperrors.ErrCodeInternalError
+	switch status {
+	case http.StatusBadRequest:
+		code = apperrors.ErrCodeBadRequest
+	case http.StatusUnauthorized:
+		code = apperrors.ErrCodeAuthFailed
+	case http.StatusForbidden:
+		code = apperrors.ErrCodePermissionDenied
+	case http.StatusNotFound:
+		code = apperrors.ErrCodeResourceNotFound
+	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": message})
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(apperrors.ErrorResponse{
+		Success: false,
+		Error:   apperrors.ErrorPayload{Code: code, Message: message},
+	})
 }
 
 // ApplyEnvironmentAuth standardizes feature auth: production requires JWT
@@ -265,6 +326,18 @@ func ApplyEnvironmentAuth(r chi.Router) {
 // ComplexAccessChecker checks whether a user belongs to a complex.
 type ComplexAccessChecker interface {
 	IsUserAssociatedWithComplex(ctx context.Context, userID, complexID uuid.UUID) (bool, error)
+}
+
+// StaffChecker checks whether a user is staff (GUARD/ADMIN) of a complex.
+type StaffChecker interface {
+	IsStaffOfComplex(ctx context.Context, userID, complexID uuid.UUID, role string) (bool, error)
+}
+
+// AccessChecker is what the gate-side routes need: complex membership plus
+// per-complex staff membership.
+type AccessChecker interface {
+	ComplexAccessChecker
+	StaffChecker
 }
 
 // UnitAccessChecker checks whether a user belongs to a unit.

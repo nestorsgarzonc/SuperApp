@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Applies db/migrations/*.sql in order against whatever Postgres the DB_* env
+# Applies db/migrations/*.sql (schema only) in order against whatever Postgres the DB_* env
 # vars point to — the local Docker container (docker-entrypoint-initdb.d does
 # this automatically on first boot) or a real AWS RDS instance (which has no
 # such hook, so this script is how you'd bootstrap/upgrade its schema).
@@ -19,6 +19,9 @@ set -euo pipefail
 : "${DB_NAME:?Set DB_NAME}"
 : "${DB_SSLMODE:=require}"
 
+# Los .sql llevan acentos (seeds): sin esto, psql en Windows los lee como cp1252.
+export PGCLIENTENCODING=UTF8
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CONNINFO="host=$DB_HOST port=$DB_PORT user=$DB_USER dbname=$DB_NAME sslmode=$DB_SSLMODE"
@@ -30,5 +33,13 @@ for f in "$SCRIPT_DIR"/migrations/*.sql; do
   echo "Applying $(basename "$f")..."
   PGPASSWORD="$DB_PASSWORD" psql "$CONNINFO" -v ON_ERROR_STOP=1 -f "$f"
 done
+
+# Datos de demostración: solo si se piden explícitamente (nunca en producción).
+if [[ "${WITH_SEEDS:-0}" == "1" ]]; then
+  for f in "$SCRIPT_DIR"/seeds/*.sql; do
+    echo "Applying seed $(basename "$f")..."
+    PGPASSWORD="$DB_PASSWORD" psql "$CONNINFO" -v ON_ERROR_STOP=1 -f "$f"
+  done
+fi
 
 echo "Done."

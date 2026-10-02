@@ -3,6 +3,7 @@ package access
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,6 +45,17 @@ const (
 	RoleResident = "RESIDENT"
 	RoleGuard    = "GUARD"
 	RoleAdmin    = "ADMIN"
+)
+
+// Reasons a validation can be refused. The front maps them to messages for the
+// guard; the English `message` stays for logs and API consumers.
+const (
+	ReasonNotFound        = "NOT_FOUND"        // unknown code OR a code of another complex (indistinguishable on purpose)
+	ReasonNoAuthorization = "NO_AUTHORIZATION" // no pre-authorization for that ID number
+	ReasonNotYetValid     = "NOT_YET_VALID"    // window hasn't started
+	ReasonExpired         = "EXPIRED"          // window has ended
+	ReasonAlreadyUsed     = "ALREADY_USED"     // single-use, already consumed
+	ReasonCancelled       = "CANCELLED"        // revoked by the resident
 )
 
 var ErrAccessGrantNotFound = errors.New("access grant not found or expired")
@@ -114,6 +126,9 @@ type CreateAccessGrantRequest struct {
 	Details         *string    `json:"details,omitempty"`
 	ValidFrom       *time.Time `json:"valid_from,omitempty"`
 	ValidUntil      time.Time  `json:"valid_until" validate:"required"`
+
+	// qrCode is issued by the QR system (never taken from the client).
+	qrCode string
 }
 
 func (r CreateAccessGrantRequest) validate() map[string][]string {
@@ -133,6 +148,11 @@ func (r CreateAccessGrantRequest) validate() map[string][]string {
 	checkMaxLen(errs, "visitor_name", r.VisitorName, maxNameLength)
 	if r.VisitorIDNumber != nil {
 		checkMaxLen(errs, "visitor_id_number", *r.VisitorIDNumber, maxIDNumberLength)
+	}
+	// A PRE_AUTH is validated by the visitor's ID number, so without one it
+	// could never be used.
+	if r.Method == MethodPreAuth && (r.VisitorIDNumber == nil || strings.TrimSpace(*r.VisitorIDNumber) == "") {
+		errs["visitor_id_number"] = []string{"required for PRE_AUTH"}
 	}
 	if r.Details != nil {
 		checkMaxLen(errs, "details", *r.Details, maxDetailsLength)
@@ -245,10 +265,24 @@ type ValidateAccessRequest struct {
 }
 
 type ValidateAccessResponse struct {
-	Valid       bool         `json:"valid"`
-	Message     string       `json:"message"`
+	Valid   bool   `json:"valid"`
+	Message string `json:"message"`
+	// Reason is set when Valid is false. ValidFrom/ValidUntil accompany
+	// NOT_YET_VALID / EXPIRED so the guard can tell the visitor when it applies.
+	Reason      string       `json:"reason,omitempty"`
+	ValidFrom   *time.Time   `json:"valid_from,omitempty"`
+	ValidUntil  *time.Time   `json:"valid_until,omitempty"`
 	AccessGrant *AccessGrant `json:"access_grant,omitempty"`
 	UnitID      *uuid.UUID   `json:"unit_id,omitempty"`
+	UnitName    *string      `json:"unit_name,omitempty"`
 	VisitorName *string      `json:"visitor_name,omitempty"`
 	VisitorType *string      `json:"visitor_type,omitempty"`
+}
+
+// GrantSummary is the staff overview of a complex: counts only, no credentials.
+type GrantSummary struct {
+	Total   int `json:"total"`
+	Active  int `json:"active"`
+	QR      int `json:"qr"`
+	PreAuth int `json:"pre_auth"`
 }

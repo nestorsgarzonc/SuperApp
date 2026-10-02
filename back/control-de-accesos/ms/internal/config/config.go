@@ -22,11 +22,19 @@ type Config struct {
 	DBMaxIdleConns        int
 	DBConnMaxLifetimeMins int
 	NotificationsURL      string
+
+	// QR system circuit breaker.
+	QRBreakerFailures    int
+	QRBreakerOpenSeconds int
+	QRCallTimeoutMs      int
+	QRMaxConcurrent      int
 }
 
 func Load() Config {
 	return Config{
-		Env:            getEnv("ENV", "development"),
+		// Fail closed: without an explicit ENV=development the service behaves as
+		// production (JWT required on every route, no dev tooling).
+		Env:            getEnv("ENV", "production"),
 		Port:           getEnv("PORT", "8080"),
 		JWTSecret:      getEnv("JWT_SECRET", ""),
 		DBHost:         getEnv("DB_HOST", "localhost"),
@@ -43,6 +51,11 @@ func Load() Config {
 		DBConnMaxLifetimeMins: getEnvInt("DB_CONN_MAX_LIFETIME_MINUTES", 5),
 		// Empty disables outbound event notifications (client no-ops).
 		NotificationsURL: getEnv("NOTIFICATIONS_URL", ""),
+
+		QRBreakerFailures:    getEnvInt("QR_BREAKER_FAILURES", 3),
+		QRBreakerOpenSeconds: getEnvInt("QR_BREAKER_OPEN_SECONDS", 10),
+		QRCallTimeoutMs:      getEnvInt("QR_CALL_TIMEOUT_MS", 800),
+		QRMaxConcurrent:      getEnvInt("QR_MAX_CONCURRENT", 32),
 	}
 }
 

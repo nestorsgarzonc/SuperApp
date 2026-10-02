@@ -18,8 +18,12 @@ SEED_PREAUTH_ID="20000000-0000-0000-0000-000000000002"
 RESP_BODY="$(mktemp)"
 trap 'rm -f "$RESP_BODY"' EXIT
 
-TOKEN=$(curl -s "$BASE/api/v1/dev/token" | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
-GUARD_TOKEN=$(curl -s "$BASE/api/v1/dev/token?role=GUARD" | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+# /dev/token deriva rol y unidad de la pertenencia real (ver db/seeds/001_demo.sql).
+RESIDENT_ID="10000000-0000-0000-0000-000000000001"   # Ana García  — residente, unidad A-101
+GUARD_ID="10000000-0000-0000-0000-000000000003"      # Luis Mora   — guardia del conjunto 1
+dev_token() { curl -s "$BASE/api/v1/dev/token?user_id=$1&complex_id=$COMPLEX_ID" | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['token'])"; }
+TOKEN=$(dev_token "$RESIDENT_ID")
+GUARD_TOKEN=$(dev_token "$GUARD_ID")
 
 PASS=0
 FAIL=0
@@ -54,7 +58,9 @@ req() {
 
 echo "=== Infra ==="
 check "GET /healthz" 200 "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/healthz")"
-check "GET /api/v1/dev/token" 200 "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/dev/token")"
+check "GET /api/v1/dev/token" 200 "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/dev/token?user_id=$RESIDENT_ID&complex_id=$COMPLEX_ID")"
+check "GET /api/v1/dev/token (sin parametros -> 422)" 422 "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/dev/token")"
+check "GET /api/v1/dev/users" 200 "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/dev/users")"
 
 echo
 echo "=== Auth guards ==="

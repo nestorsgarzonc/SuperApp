@@ -2,6 +2,7 @@ package errors
 
 import (
 	"encoding/json"
+	stderrors "errors"
 	"log/slog"
 	"net/http"
 )
@@ -78,12 +79,21 @@ func RespondOK(w http.ResponseWriter, data interface{}) {
 	RespondSuccess(w, data, http.StatusOK)
 }
 
-func DecodeJSONLenient(r *http.Request, target interface{}) error {
+// MaxRequestBodyBytes caps every JSON request body. Without a cap a single
+// client could make the server read and decode an arbitrarily large payload.
+const MaxRequestBodyBytes int64 = 1 << 20 // 1 MiB
+
+func DecodeJSONLenient(w http.ResponseWriter, r *http.Request, target interface{}) error {
 	if r.Body == nil {
 		return NewBadRequestError("Request body is empty")
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodyBytes)
 
 	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
+		var tooBig *http.MaxBytesError
+		if stderrors.As(err, &tooBig) {
+			return NewPayloadTooLargeError(MaxRequestBodyBytes)
+		}
 		return NewBadRequestError("Invalid JSON: " + err.Error())
 	}
 

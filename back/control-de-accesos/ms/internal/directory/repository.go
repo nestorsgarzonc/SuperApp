@@ -71,8 +71,8 @@ func (r *Repository) IsUserAssociatedWithUnit(ctx context.Context, userID, unitI
 	return exists, nil
 }
 
-// IsUserAssociatedWithComplex reports whether the user is a member of any
-// unit belonging to the complex.
+// IsUserAssociatedWithComplex reports whether the user belongs to the complex:
+// as a member of one of its units (resident) or as its staff (guard/admin).
 func (r *Repository) IsUserAssociatedWithComplex(ctx context.Context, userID, complexID uuid.UUID) (bool, error) {
 	var exists bool
 	err := r.db.QueryRowContext(ctx,
@@ -80,11 +80,28 @@ func (r *Repository) IsUserAssociatedWithComplex(ctx context.Context, userID, co
 			SELECT 1 FROM unit_members um
 			JOIN units u ON u.id = um.unit_id
 			WHERE um.user_id = $1 AND u.complex_id = $2
+		) OR EXISTS(
+			SELECT 1 FROM complex_staff WHERE user_id = $1 AND complex_id = $2
 		)`,
 		userID, complexID,
 	).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("failed to check complex membership: %w", err)
+	}
+	return exists, nil
+}
+
+// IsStaffOfComplex reports whether the user is registered as GUARD/ADMIN
+// (role) of exactly this complex. A role claim in a token is never enough on
+// its own: being a guard of complex 1 says nothing about complex 2.
+func (r *Repository) IsStaffOfComplex(ctx context.Context, userID, complexID uuid.UUID, role string) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM complex_staff WHERE user_id = $1 AND complex_id = $2 AND role = $3)`,
+		userID, complexID, role,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check staff membership: %w", err)
 	}
 	return exists, nil
 }

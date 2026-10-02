@@ -16,6 +16,9 @@ const (
 	TypePermission
 	TypeInternal
 	TypeBadRequest
+	TypeConflict
+	TypeUnavailable
+	TypePayloadTooLarge
 )
 
 type AppError interface {
@@ -59,6 +62,12 @@ func (e *baseError) HTTPStatus() int {
 		return http.StatusForbidden
 	case TypeBadRequest:
 		return http.StatusBadRequest
+	case TypeConflict:
+		return http.StatusConflict
+	case TypeUnavailable:
+		return http.StatusServiceUnavailable
+	case TypePayloadTooLarge:
+		return http.StatusRequestEntityTooLarge
 	default:
 		return http.StatusInternalServerError
 	}
@@ -175,6 +184,55 @@ func NewBadRequestError(message string) *BadRequestError {
 			code:    ErrCodeBadRequest,
 			errType: TypeBadRequest,
 			message: message,
+		},
+	}
+}
+
+// ConflictError: the request is well-formed but contradicts the current state
+// (e.g. entering a building you're already inside).
+type ConflictError struct {
+	baseError
+}
+
+func NewConflictError(message string) *ConflictError {
+	return &ConflictError{
+		baseError: baseError{
+			code:    ErrCodeConflict,
+			errType: TypeConflict,
+			message: message,
+		},
+	}
+}
+
+// UnavailableError: a dependency is down and the request was refused (or cut
+// short) instead of left hanging. Details tell the client what to do instead.
+type UnavailableError struct {
+	baseError
+}
+
+func NewUnavailableError(code ErrorCode, message string, details map[string]interface{}) *UnavailableError {
+	return &UnavailableError{
+		baseError: baseError{
+			code:    code,
+			errType: TypeUnavailable,
+			message: message,
+			details: details,
+		},
+	}
+}
+
+// PayloadTooLargeError: the request body exceeds MaxRequestBodyBytes.
+type PayloadTooLargeError struct {
+	baseError
+}
+
+func NewPayloadTooLargeError(limit int64) *PayloadTooLargeError {
+	return &PayloadTooLargeError{
+		baseError: baseError{
+			code:    ErrCodePayloadTooLarge,
+			errType: TypePayloadTooLarge,
+			message: "Request body too large",
+			details: map[string]interface{}{"max_bytes": limit},
 		},
 	}
 }

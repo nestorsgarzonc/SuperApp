@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
@@ -9,25 +8,17 @@ import (
 	"time"
 
 	"controldeaccesos/internal/access"
+	"controldeaccesos/internal/accesslog"
 	"controldeaccesos/internal/audit"
 	"controldeaccesos/internal/config"
 	"controldeaccesos/internal/directory"
 	"controldeaccesos/internal/notifier"
 	"controldeaccesos/internal/platform/database"
 	authmw "controldeaccesos/internal/platform/middleware"
+	"controldeaccesos/internal/qrsystem"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
-)
-
-// Demo seed identities, used only by the development /dev/token endpoint.
-// They must match SuperApp/back/control-de-accesos/db/migrations/002_seed.sql.
-const (
-	demoComplexID = "00000000-0000-0000-0000-000000000001"
-	demoUnitID    = "10000000-0000-0000-0000-000000000101"
-	demoUserID    = "10000000-0000-0000-0000-000000000001"
-	demoUserEmail = "resident1@demo.com"
-	demoUserRole  = "RESIDENT"
 )
 
 func main() {
@@ -69,8 +60,17 @@ func main() {
 	accessRepo := access.NewPostgresRepository(db.DB)
 	auditRepo := audit.NewRepository(db.DB)
 	notifierClient := notifier.New(cfg.NotificationsURL, logger)
-	accessService := access.NewService(accessRepo, dir, dir, notifierClient, auditRepo, logger)
+	// QR system behind a circuit breaker. In development it is simulated so its
+	// failure can be provoked from the dev tools; elsewhere codes are issued locally.
+	qrSys := qrsystem.New(newQRClient(), qrsystem.Config{
+		Failures:      cfg.QRBreakerFailures,
+		OpenFor:       time.Duration(cfg.QRBreakerOpenSeconds) * time.Second,
+		CallTimeout:   time.Duration(cfg.QRCallTimeoutMs) * time.Millisecond,
+		MaxConcurrent: cfg.QRMaxConcurrent,
+	}, logger)
+	accessService := access.NewService(accessRepo, dir, dir, notifierClient, auditRepo, qrSys, logger)
 	accessHandler := access.NewHandler(accessService)
+	accessLogHandler := accesslog.NewHandler(accesslog.NewPostgresRepository(db.DB), auditRepo, logger)
 
 	r := chi.NewRouter()
 	r.Use(chimw.Logger)
@@ -89,13 +89,19 @@ func main() {
 
 	r.Route("/api/v1", func(r chi.Router) {
 		access.RegisterRoutes(r, accessHandler, dir)
+		accesslog.RegisterRoutes(r, accessLogHandler, dir)
+		accesslog.RegisterResidentRoutes(r, accessLogHandler, dir)
 
 		r.Route("/units", func(r chi.Router) {
 			access.RegisterUnitRoutes(r, accessHandler, dir)
 		})
 
+		// Dev tooling exists only in binaries built with `-tags dev` AND started
+		// with ENV=development; a normal build has no /dev routes at all.
 		if cfg.Env == "development" {
-			r.Get("/dev/token", devTokenHandler)
+			if mountDev(r, db.DB, qrSys) {
+				logger.Warn("development tooling enabled (/dev/*): never expose this build")
+			}
 		}
 	})
 
@@ -104,26 +110,4 @@ func main() {
 		logger.Error("server stopped", "error", err)
 		os.Exit(1)
 	}
-}
-
-// devTokenHandler issues a bearer token for the seeded demo resident.
-// ?role=GUARD|ADMIN|RESIDENT overrides the role claim for testing
-// role-gated endpoints. Only mounted when ENV=development.
-func devTokenHandler(w http.ResponseWriter, r *http.Request) {
-	role := demoUserRole
-	if rp := r.URL.Query().Get("role"); rp != "" {
-		role = rp
-	}
-	token, err := authmw.GenerateJWT(demoUserID, demoUserEmail, role, demoComplexID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"token":      token,
-		"complex_id": demoComplexID,
-		"unit_id":    demoUnitID,
-		"user_id":    demoUserID,
-	})
 }
