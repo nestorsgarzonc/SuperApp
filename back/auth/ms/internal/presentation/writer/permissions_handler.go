@@ -3,7 +3,7 @@ package writer
 import (
 	"net/http"
 	"superapp/auth/internal/core/domain"
-	dtoPermissions "superapp/auth/internal/presentation/dto/permissions"
+	apppermissions "superapp/auth/internal/core/usecases/permissions"
 	"superapp/auth/internal/presentation/mapper"
 	"superapp/auth/internal/presentation/reader"
 	shared "superapp/auth/internal/presentation/shared"
@@ -17,12 +17,12 @@ func (a *Handlers) createPermission(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	created, err := a.CreatePermission.CreatePermissionFromRequest(r.Context(), request)
+	created, err := a.Permissions.CreatePermission(r.Context(), request)
 	if err != nil {
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, 201, mapper.CreatedPermissionResponse(created))
+	shared.WriteJSON(w, 201, mapper.PermissionResponse(created))
 }
 func (a *Handlers) permissionRoute(w http.ResponseWriter, r *http.Request, p []string) {
 	if _, ok := a.RequireSystemPermission(w, r, "auth.roles.manage"); !ok {
@@ -39,32 +39,19 @@ func (a *Handlers) permissionRoute(w http.ResponseWriter, r *http.Request, p []s
 	}
 	switch r.Method {
 	case "PATCH", "PUT":
-		current, e := a.Permissions.PermissionByID(r.Context(), pid)
-		if e != nil {
-			a.Fail(w, e)
+		request, ok := reader.UpdatePermissionRequest(w, r, pid)
+		if !ok {
 			return
 		}
-		var in dtoPermissions.UpdateRequestDTO
-		if !shared.Decode(w, r, &in) {
+		updated, err := a.Permissions.UpdatePermission(r.Context(), request)
+		if err != nil {
+			a.Fail(w, err)
 			return
 		}
-		if in.Code != nil {
-			current.Code = *in.Code
-		}
-		if in.Description != nil {
-			current.Description = *in.Description
-		}
-		if in.Code == nil && in.Description == nil {
-			a.Fail(w, domain.ErrInvalidArgument)
-			return
-		}
-		if e := a.Permissions.UpdatePermission(r.Context(), *current); e != nil {
-			a.Fail(w, e)
-			return
-		}
-		shared.WriteJSON(w, 200, mapper.PermissionResponse(current))
+		shared.WriteJSON(w, 200, mapper.PermissionResponse(updated))
 	case "DELETE":
-		a.Respond(w, a.Permissions.DeletePermission(r.Context(), pid), 204, nil)
+		_, err := a.Permissions.DeletePermission(r.Context(), apppermissions.DeleteRequester{PermissionID: pid})
+		a.Respond(w, err, 204, nil)
 	default:
 		shared.MethodNotAllowed(w)
 	}

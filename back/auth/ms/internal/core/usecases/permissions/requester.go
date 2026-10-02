@@ -1,6 +1,6 @@
 package permissions
 
-type Requester struct {
+type CreateRequester struct {
 	Code        string
 	Description string
 }

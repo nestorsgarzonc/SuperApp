@@ -17,6 +17,7 @@ import (
 	"superapp/auth/internal/core/usecases/contracts"
 	permissionusecase "superapp/auth/internal/core/usecases/permissions"
 	roleusecase "superapp/auth/internal/core/usecases/roles"
+	sessions "superapp/auth/internal/core/usecases/sessions"
 	users "superapp/auth/internal/core/usecases/users"
 )
 
@@ -193,7 +194,7 @@ func TestRefreshRotatesAndOnlyPersistsHash(t *testing.T) {
 
 func TestTenantRoleRequiresTenantScope(t *testing.T) {
 	s := newTestApplication(&testRepository{}, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
-	_, err := s.CreateRole(context.Background(), domain.Role{Code: "TENANT_MANAGER", Name: "Manager", Scope: "TENANT"})
+	_, err := s.CreateRole(context.Background(), roleusecase.CreateRequester{Code: "TENANT_MANAGER", Name: "Manager", Scope: "TENANT"})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("expected tenant scope validation, got %v", err)
 	}
@@ -201,7 +202,7 @@ func TestTenantRoleRequiresTenantScope(t *testing.T) {
 
 func TestPermissionCodeMustBeNamespaced(t *testing.T) {
 	s := newTestApplication(&testRepository{}, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
-	_, err := s.CreatePermission(context.Background(), domain.Permission{Code: "ADMIN"})
+	_, err := s.CreatePermission(context.Background(), permissionusecase.CreateRequester{Code: "ADMIN"})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("expected namespaced permission validation, got %v", err)
 	}
@@ -237,7 +238,7 @@ func TestLogoutRevokesRefreshTokenByHash(t *testing.T) {
 func TestLogoutAllRevokesSessionsForAuthenticatedUser(t *testing.T) {
 	repo := &revocationRepository{}
 	s := newTestApplication(repo, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
-	if err := s.LogoutAll(context.Background(), "user-123"); err != nil {
+	if _, err := s.LogoutAll(context.Background(), sessions.LogoutAllRequester{UserID: "user-123"}); err != nil {
 		t.Fatal(err)
 	}
 	if !repo.allCalled || repo.userID != "user-123" {
@@ -260,6 +261,8 @@ type managementRepository struct {
 	revokedRole          string
 	assignedUser         string
 	assignedRole         string
+	assignedActor        string
+	assignedTenant       *string
 	revokedUser          string
 	revokedAssignedRole  string
 	allowed              bool
@@ -273,6 +276,12 @@ func (r *managementRepository) CreateUser(_ context.Context, params repository.C
 }
 func (r *managementRepository) UserByID(context.Context, string) (*domain.User, error) {
 	return r.user, nil
+}
+func (r *managementRepository) RoleByID(context.Context, string, *string) (*domain.Role, error) {
+	return &r.role, nil
+}
+func (r *managementRepository) PermissionByID(context.Context, string) (*domain.Permission, error) {
+	return &r.permission, nil
 }
 func (r *managementRepository) UpdateUser(_ context.Context, params repository.UpdateUserParams) error {
 	r.updatedUserID = params.ID
@@ -316,6 +325,7 @@ func (r *managementRepository) RevokePermission(_ context.Context, params reposi
 }
 func (r *managementRepository) AssignRole(_ context.Context, params repository.AssignRoleParams) error {
 	r.assignedUser, r.assignedRole = params.UserID, params.RoleID
+	r.assignedActor, r.assignedTenant = params.ActorID, params.TenantID
 	return nil
 }
 func (r *managementRepository) RevokeRole(_ context.Context, params repository.RevokeRoleParams) error {
@@ -336,7 +346,7 @@ func TestUserUpdateStatusAndActivationValidation(t *testing.T) {
 	repo := &managementRepository{user: &domain.User{ID: "user-1"}}
 	s := newTestApplication(repo, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
 	email, name, status := " NEW@EXAMPLE.TEST ", " New Name ", "LOCKED"
-	if err := s.UpdateUser(context.Background(), users.UpdateParams{ID: "user-1", Email: &email, FullName: &name, Status: &status}); err != nil {
+	if _, err := s.UpdateUser(context.Background(), users.UpdateRequester{ID: "user-1", Email: &email, FullName: &name, Status: &status}); err != nil {
 		t.Fatal(err)
 	}
 	if repo.updatedUserID != "user-1" || repo.statusUserID != "user-1" || repo.status != status {
@@ -344,7 +354,7 @@ func TestUserUpdateStatusAndActivationValidation(t *testing.T) {
 	}
 	repo.updatedUserID = ""
 	invalidStatus := "SUPERUSER"
-	if err := s.UpdateUser(context.Background(), users.UpdateParams{ID: "user-1", Status: &invalidStatus}); !errors.Is(err, domain.ErrInvalidArgument) {
+	if _, err := s.UpdateUser(context.Background(), users.UpdateRequester{ID: "user-1", Status: &invalidStatus}); !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("invalid status accepted: %v", err)
 	}
 	if repo.updatedUserID != "" {
@@ -360,54 +370,59 @@ func TestRolePermissionManagementAndAuthorizationDelegation(t *testing.T) {
 		allowed:              true,
 	}
 	s := newTestApplication(repo, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
-	createdRole, err := s.CreateRoleFromRequest(context.Background(), roleusecase.Requester{Code: "TENANT_ADMIN", Name: "Tenant Admin", Scope: "TENANT", TenantID: &tenant})
+	createdRole, err := s.CreateRole(context.Background(), roleusecase.CreateRequester{Code: "TENANT_ADMIN", Name: "Tenant Admin", Scope: "TENANT", TenantID: &tenant})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if createdRole.ID == "" || !createdRole.Enabled || repo.role.ID != createdRole.ID || repo.role.TenantID == nil || *repo.role.TenantID != tenant {
 		t.Fatalf("created role did not return generated values: result=%#v persisted=%#v", createdRole, repo.role)
 	}
-	if err := s.UpdateRole(context.Background(), domain.Role{ID: "role-1", Name: "Resident Updated"}, &tenant); err != nil {
+	updatedName := "Resident Updated"
+	if _, err := s.UpdateRole(context.Background(), roleusecase.UpdateRequester{RoleID: "role-1", Name: &updatedName, TenantID: &tenant}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DeleteRole(context.Background(), "role-1", &tenant); err != nil || repo.deletedRoleID != "role-1" {
+	if _, err := s.DeleteRole(context.Background(), roleusecase.DeleteRequester{RoleID: "role-1", TenantID: &tenant}); err != nil || repo.deletedRoleID != "role-1" {
 		t.Fatalf("role delete not delegated: id=%s err=%v", repo.deletedRoleID, err)
 	}
-	createdPermission, err := s.CreatePermissionFromRequest(context.Background(), permissionusecase.Requester{Code: "homes.read", Description: "Read homes"})
+	createdPermission, err := s.CreatePermission(context.Background(), permissionusecase.CreateRequester{Code: "homes.read", Description: "Read homes"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if createdPermission.ID == "" || repo.permission.ID != createdPermission.ID {
 		t.Fatalf("created permission did not return generated ID: result=%#v persisted=%#v", createdPermission, repo.permission)
 	}
-	if err := s.UpdatePermission(context.Background(), domain.Permission{ID: "permission-1", Code: "homes.write"}); err != nil || repo.updatedPermissionID != "permission-1" {
+	updatedCode := "homes.write"
+	if _, err := s.UpdatePermission(context.Background(), permissionusecase.UpdateRequester{PermissionID: createdPermission.ID, Code: &updatedCode}); err != nil || repo.updatedPermissionID != createdPermission.ID {
 		t.Fatalf("permission update not delegated: id=%s err=%v", repo.updatedPermissionID, err)
 	}
-	if err := s.DeletePermission(context.Background(), "permission-1"); err != nil || repo.deletedPermissionID != "permission-1" {
+	if _, err := s.DeletePermission(context.Background(), permissionusecase.DeleteRequester{PermissionID: createdPermission.ID}); err != nil || repo.deletedPermissionID != createdPermission.ID {
 		t.Fatalf("permission delete not delegated: id=%s err=%v", repo.deletedPermissionID, err)
 	}
-	if err := s.GrantPermission(context.Background(), authorizationusecase.RolePermissionParams{RoleID: "role-1", PermissionID: "permission-1", TenantID: &tenant}); err != nil || repo.grantedRole != "role-1:permission-1" {
+	if _, err := s.GrantPermission(context.Background(), authorizationusecase.RolePermissionParams{RoleID: "role-1", PermissionID: "permission-1", TenantID: &tenant}); err != nil || repo.grantedRole != "role-1:permission-1" {
 		t.Fatalf("permission grant not delegated: %s, %v", repo.grantedRole, err)
 	}
-	if err := s.RevokePermission(context.Background(), authorizationusecase.RolePermissionParams{RoleID: "role-1", PermissionID: "permission-1", TenantID: &tenant}); err != nil || repo.revokedRole != "role-1:permission-1" {
+	if _, err := s.RevokePermission(context.Background(), authorizationusecase.RolePermissionParams{RoleID: "role-1", PermissionID: "permission-1", TenantID: &tenant}); err != nil || repo.revokedRole != "role-1:permission-1" {
 		t.Fatalf("permission revoke not delegated: %s, %v", repo.revokedRole, err)
 	}
-	if err := s.AssignRole(context.Background(), authorizationusecase.AssignRoleParams{UserID: "user-1", RoleID: "role-1", TenantID: &tenant, ActorID: "actor-1"}); err != nil || repo.assignedUser != "user-1" || repo.assignedRole != "role-1" {
+	if _, err := s.AssignRole(context.Background(), authorizationusecase.AssignRoleParams{UserID: "user-1", RoleID: "role-1", TenantID: &tenant, ActorID: "actor-1"}); err != nil || repo.assignedUser != "user-1" || repo.assignedRole != "role-1" {
 		t.Fatalf("role assignment not delegated: %#v err=%v", repo, err)
 	}
-	if err := s.RevokeRole(context.Background(), authorizationusecase.RevokeRoleParams{UserID: "user-1", RoleID: "role-1", TenantID: &tenant}); err != nil || repo.revokedUser != "user-1" || repo.revokedAssignedRole != "role-1" {
+	if repo.assignedActor != "actor-1" || repo.assignedTenant == nil || *repo.assignedTenant != tenant {
+		t.Fatalf("actor or tenant context lost during role assignment: %#v", repo)
+	}
+	if _, err := s.RevokeRole(context.Background(), authorizationusecase.RevokeRoleParams{UserID: "user-1", RoleID: "role-1", TenantID: &tenant}); err != nil || repo.revokedUser != "user-1" || repo.revokedAssignedRole != "role-1" {
 		t.Fatalf("role removal not delegated: %#v err=%v", repo, err)
 	}
-	roles, err := s.EffectiveRoles(context.Background(), "user-1", &tenant)
-	if err != nil || len(roles) != 2 {
+	roles, err := s.EffectiveRoles(context.Background(), authorizationusecase.EffectiveRolesRequester{UserID: "user-1", TenantID: &tenant})
+	if err != nil || len(roles.Roles) != 2 {
 		t.Fatalf("multiple effective roles lost: %v %v", roles, err)
 	}
-	permissions, err := s.EffectivePermissions(context.Background(), "user-1", &tenant)
-	if err != nil || len(permissions) != 2 {
+	permissions, err := s.EffectivePermissions(context.Background(), authorizationusecase.EffectivePermissionsRequester{UserID: "user-1", TenantID: &tenant})
+	if err != nil || len(permissions.Permissions) != 2 {
 		t.Fatalf("permissions from multiple roles lost: %v %v", permissions, err)
 	}
-	allowed, err := s.HasPermission(context.Background(), authorizationusecase.HasPermissionParams{UserID: "user-1", PermissionCode: "homes.read", TenantID: &tenant})
-	if err != nil || !allowed {
-		t.Fatalf("permission check failed: allowed=%v err=%v", allowed, err)
+	allowed, err := s.CheckPermission(context.Background(), authorizationusecase.CheckPermissionRequester{UserID: "user-1", PermissionCode: "homes.read", TenantID: &tenant})
+	if err != nil || !allowed.Allowed {
+		t.Fatalf("permission check failed: allowed=%v err=%v", allowed.Allowed, err)
 	}
 }

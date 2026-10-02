@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"superapp/auth/internal/core/domain"
 	appauthorization "superapp/auth/internal/core/usecases/authorization"
-	dtoRoles "superapp/auth/internal/presentation/dto/roles"
+	approles "superapp/auth/internal/core/usecases/roles"
 	"superapp/auth/internal/presentation/mapper"
 	"superapp/auth/internal/presentation/reader"
 	shared "superapp/auth/internal/presentation/shared"
@@ -20,14 +20,14 @@ func (a *Handlers) roleRoute(w http.ResponseWriter, r *http.Request, p []string)
 		a.Fail(w, err)
 		return
 	}
-	allowed, err := a.Authorization.HasPermission(r.Context(), appauthorization.HasPermissionParams{
+	permission, err := a.Authorization.CheckPermission(r.Context(), appauthorization.CheckPermissionRequester{
 		UserID: id.UserID, PermissionCode: "auth.roles.manage", TenantID: tenant,
 	})
 	if err != nil {
 		a.Fail(w, err)
 		return
 	}
-	if !allowed {
+	if !permission.Allowed {
 		shared.WriteError(w, 403, "forbidden", "Permission denied")
 		return
 	}
@@ -41,53 +41,34 @@ func (a *Handlers) roleRoute(w http.ResponseWriter, r *http.Request, p []string)
 		return
 	}
 	if len(p) == 2 && (r.Method == "PATCH" || r.Method == "PUT") {
-		current, err := a.Roles.RoleByID(r.Context(), rid, tenant)
+		request, ok := reader.UpdateRoleRequest(w, r, rid, tenant)
+		if !ok {
+			return
+		}
+		updated, err := a.Roles.UpdateRole(r.Context(), request)
 		if err != nil {
 			a.Fail(w, err)
 			return
 		}
-		var in dtoRoles.UpdateRequestDTO
-		if !shared.Decode(w, r, &in) {
-			return
-		}
-		if in.Name != nil {
-			current.Name = *in.Name
-		}
-		if in.Description != nil {
-			current.Description = *in.Description
-		}
-		if in.Enabled != nil {
-			current.Enabled = *in.Enabled
-		}
-		if in.Name == nil && in.Description == nil && in.Enabled == nil {
-			a.Fail(w, domain.ErrInvalidArgument)
-			return
-		}
-		if err := a.Roles.UpdateRole(r.Context(), *current, tenant); err != nil {
-			a.Fail(w, err)
-			return
-		}
-		shared.WriteJSON(w, 200, mapper.RoleResponse(current))
+		shared.WriteJSON(w, 200, mapper.RoleResponse(updated))
 		return
 	}
 	if len(p) == 2 && r.Method == "DELETE" {
-		a.Respond(w, a.Roles.DeleteRole(r.Context(), rid, tenant), 204, nil)
+		_, err := a.Roles.DeleteRole(r.Context(), approles.DeleteRequester{RoleID: rid, TenantID: tenant})
+		a.Respond(w, err, 204, nil)
 		return
 	}
 	if len(p) == 3 && p[2] == "permissions" && r.Method == "POST" {
-		var in struct {
-			PermissionID string `json:"permission_id"`
-		}
-		if !shared.Decode(w, r, &in) {
+		request, ok := reader.CreateRolePermissionRequest(w, r, rid, tenant)
+		if !ok {
 			return
 		}
-		if !shared.ValidUUID(in.PermissionID) {
+		if !shared.ValidUUID(request.PermissionID) {
 			a.Fail(w, domain.ErrInvalidArgument)
 			return
 		}
-		a.Respond(w, a.Authorization.GrantPermission(r.Context(), appauthorization.RolePermissionParams{
-			RoleID: rid, PermissionID: in.PermissionID, TenantID: tenant,
-		}), 201, map[string]string{"status": "granted"})
+		_, err := a.Authorization.GrantPermission(r.Context(), request)
+		a.Respond(w, err, 201, map[string]string{"status": "granted"})
 		return
 	}
 	if len(p) == 4 && p[2] == "permissions" && r.Method == "DELETE" {
@@ -95,9 +76,10 @@ func (a *Handlers) roleRoute(w http.ResponseWriter, r *http.Request, p []string)
 			a.Fail(w, domain.ErrInvalidArgument)
 			return
 		}
-		a.Respond(w, a.Authorization.RevokePermission(r.Context(), appauthorization.RolePermissionParams{
+		_, err := a.Authorization.RevokePermission(r.Context(), appauthorization.RolePermissionParams{
 			RoleID: rid, PermissionID: p[3], TenantID: tenant,
-		}), 204, nil)
+		})
+		a.Respond(w, err, 204, nil)
 		return
 	}
 	shared.WriteError(w, 404, "not_found", "Route not found")
@@ -130,10 +112,10 @@ func (a *Handlers) createRole(w http.ResponseWriter, r *http.Request) {
 	} else {
 		request.TenantID = nil
 	}
-	created, err := a.CreateRole.CreateRoleFromRequest(r.Context(), request)
+	created, err := a.Roles.CreateRole(r.Context(), request)
 	if err != nil {
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, 201, mapper.CreatedRoleResponse(created))
+	shared.WriteJSON(w, 201, mapper.RoleResponse(created))
 }

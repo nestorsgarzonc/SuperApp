@@ -3,6 +3,7 @@ package reader
 import (
 	"net/http"
 	"superapp/auth/internal/core/domain"
+	approles "superapp/auth/internal/core/usecases/roles"
 	"superapp/auth/internal/presentation/mapper"
 	shared "superapp/auth/internal/presentation/shared"
 )
@@ -17,7 +18,7 @@ func (a *Handlers) listRoles(w http.ResponseWriter, r *http.Request) {
 		a.Fail(w, err)
 		return
 	}
-	v, err := a.Roles.Roles(r.Context(), tenant)
+	v, err := a.Roles.ListRoles(r.Context(), approles.ListRequester{TenantID: tenant})
 	if err != nil {
 		a.Fail(w, err)
 		return
@@ -43,7 +44,7 @@ func (a *Handlers) roleRoute(w http.ResponseWriter, r *http.Request, p []string)
 		a.Fail(w, domain.ErrInvalidArgument)
 		return
 	}
-	role, err := a.Roles.RoleByID(r.Context(), p[1], tenant)
+	role, err := a.Roles.GetRole(r.Context(), approles.GetRequester{RoleID: p[1], TenantID: tenant})
 	if err != nil {
 		a.Fail(w, err)
 		return

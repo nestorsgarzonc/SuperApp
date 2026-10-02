@@ -15,7 +15,8 @@ func (a *SessionsHandler) logoutAll(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	a.Respond(w, a.Sessions.LogoutAll(r.Context(), id.UserID), http.StatusNoContent, nil)
+	_, err := a.Sessions.LogoutAll(r.Context(), appsessions.LogoutAllRequester{UserID: id.UserID})
+	a.Respond(w, err, http.StatusNoContent, nil)
 }
 func (a *SessionsHandler) revokeSession(w http.ResponseWriter, r *http.Request) {
 	id, ok := a.Auth(w, r)
@@ -27,7 +28,8 @@ func (a *SessionsHandler) revokeSession(w http.ResponseWriter, r *http.Request) 
 		a.Fail(w, domain.ErrInvalidArgument)
 		return
 	}
-	a.Respond(w, a.Sessions.RevokeSession(r.Context(), appsessions.RevokeParams{
+	_, err := a.Sessions.RevokeSession(r.Context(), appsessions.RevokeParams{
 		UserID: id.UserID, SessionID: id2,
-	}), http.StatusNoContent, nil)
+	})
+	a.Respond(w, err, http.StatusNoContent, nil)
 }

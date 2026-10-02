@@ -12,3 +12,7 @@ type UpdateRequestDTO struct {
 	Description *string `json:"description"`
 	Enabled     *bool   `json:"enabled"`
 }
+
+type GrantPermissionRequestDTO struct {
+	PermissionID string `json:"permission_id"`
+}

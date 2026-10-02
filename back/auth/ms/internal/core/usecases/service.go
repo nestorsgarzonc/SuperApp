@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"superapp/auth/internal/core/domain"
 	"superapp/auth/internal/core/ports/repository"
 	"superapp/auth/internal/core/ports/security"
 	"superapp/auth/internal/core/usecases/authorization"
@@ -13,38 +12,36 @@ import (
 )
 
 type userUseCases interface {
-	User(context.Context, string) (*domain.User, error)
-	UpdateUser(context.Context, users.UpdateParams) error
+	GetUser(context.Context, users.GetRequester) (users.Presenter, error)
+	UpdateUser(context.Context, users.UpdateRequester) (users.UpdatePresenter, error)
 }
 type sessionUseCases interface {
-	LogoutAll(context.Context, string) error
-	Sessions(context.Context, string) ([]domain.Session, error)
-	RevokeSession(context.Context, sessions.RevokeParams) error
+	LogoutAll(context.Context, sessions.LogoutAllRequester) (sessions.LogoutAllPresenter, error)
+	ListSessions(context.Context, sessions.ListRequester) (sessions.ListPresenter, error)
+	RevokeSession(context.Context, sessions.RevokeParams) (sessions.RevokePresenter, error)
 }
 type roleUseCases interface {
-	CreateRoleFromRequest(context.Context, roles.Requester) (roles.Presenter, error)
-	Roles(context.Context, *string) ([]domain.Role, error)
-	CreateRole(context.Context, domain.Role) (*domain.Role, error)
-	RoleByID(context.Context, string, *string) (*domain.Role, error)
-	UpdateRole(context.Context, domain.Role, *string) error
-	DeleteRole(context.Context, string, *string) error
+	CreateRole(context.Context, roles.CreateRequester) (roles.Presenter, error)
+	UpdateRole(context.Context, roles.UpdateRequester) (roles.Presenter, error)
+	DeleteRole(context.Context, roles.DeleteRequester) (roles.DeletePresenter, error)
+	GetRole(context.Context, roles.GetRequester) (roles.Presenter, error)
+	ListRoles(context.Context, roles.ListRequester) (roles.ListPresenter, error)
 }
 type permissionUseCases interface {
-	CreatePermissionFromRequest(context.Context, permissions.Requester) (permissions.Presenter, error)
-	Permissions(context.Context) ([]domain.Permission, error)
-	CreatePermission(context.Context, domain.Permission) (*domain.Permission, error)
-	PermissionByID(context.Context, string) (*domain.Permission, error)
-	UpdatePermission(context.Context, domain.Permission) error
-	DeletePermission(context.Context, string) error
+	CreatePermission(context.Context, permissions.CreateRequester) (permissions.Presenter, error)
+	UpdatePermission(context.Context, permissions.UpdateRequester) (permissions.Presenter, error)
+	DeletePermission(context.Context, permissions.DeleteRequester) (permissions.DeletePresenter, error)
+	GetPermission(context.Context, permissions.GetRequester) (permissions.Presenter, error)
+	ListPermissions(context.Context, permissions.ListRequester) (permissions.ListPresenter, error)
 }
 type authorizationUseCases interface {
-	HasPermission(context.Context, authorization.HasPermissionParams) (bool, error)
-	EffectivePermissions(context.Context, string, *string) ([]string, error)
-	EffectiveRoles(context.Context, string, *string) ([]domain.Role, error)
-	GrantPermission(context.Context, authorization.RolePermissionParams) error
-	RevokePermission(context.Context, authorization.RolePermissionParams) error
-	AssignRole(context.Context, authorization.AssignRoleParams) error
-	RevokeRole(context.Context, authorization.RevokeRoleParams) error
+	CheckPermission(context.Context, authorization.CheckPermissionRequester) (authorization.CheckPermissionPresenter, error)
+	EffectivePermissions(context.Context, authorization.EffectivePermissionsRequester) (authorization.EffectivePermissionsPresenter, error)
+	EffectiveRoles(context.Context, authorization.EffectiveRolesRequester) (authorization.EffectiveRolesPresenter, error)
+	GrantPermission(context.Context, authorization.RolePermissionParams) (authorization.Presenter, error)
+	RevokePermission(context.Context, authorization.RolePermissionParams) (authorization.Presenter, error)
+	AssignRole(context.Context, authorization.AssignRoleParams) (authorization.Presenter, error)
+	RevokeRole(context.Context, authorization.RevokeRoleParams) (authorization.Presenter, error)
 }
 type Service struct {
 	userUseCases

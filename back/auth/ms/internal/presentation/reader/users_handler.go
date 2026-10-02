@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"superapp/auth/internal/core/domain"
+	appauthorization "superapp/auth/internal/core/usecases/authorization"
+	appusers "superapp/auth/internal/core/usecases/users"
 	"superapp/auth/internal/presentation/mapper"
 	shared "superapp/auth/internal/presentation/shared"
 )
@@ -37,26 +39,26 @@ func (a *Handlers) userRoute(w http.ResponseWriter, r *http.Request, p []string)
 	}
 	switch {
 	case len(p) == 2:
-		user, err := a.Users.User(r.Context(), target)
+		user, err := a.Users.GetUser(r.Context(), appusers.GetRequester{UserID: target})
 		if err != nil {
 			a.Fail(w, err)
 			return
 		}
-		shared.WriteJSON(w, http.StatusOK, mapper.UserResponse(user))
+		shared.WriteJSON(w, http.StatusOK, mapper.UserPresenterResponse(user))
 	case len(p) == 3 && p[2] == "roles":
-		roles, err := a.Authorization.EffectiveRoles(r.Context(), target, tenant)
+		roles, err := a.Authorization.EffectiveRoles(r.Context(), appauthorization.EffectiveRolesRequester{UserID: target, TenantID: tenant})
 		if err != nil {
 			a.Fail(w, err)
 			return
 		}
-		shared.WriteJSON(w, http.StatusOK, mapper.RoleResponses(roles))
+		shared.WriteJSON(w, http.StatusOK, mapper.AuthorizedRoleResponses(roles))
 	case len(p) == 3 && p[2] == "permissions":
-		permissions, err := a.Authorization.EffectivePermissions(r.Context(), target, tenant)
+		permissions, err := a.Authorization.EffectivePermissions(r.Context(), appauthorization.EffectivePermissionsRequester{UserID: target, TenantID: tenant})
 		if err != nil {
 			a.Fail(w, err)
 			return
 		}
-		shared.WriteJSON(w, http.StatusOK, permissions)
+		shared.WriteJSON(w, http.StatusOK, mapper.EffectivePermissionsResponse(permissions))
 	default:
 		shared.WriteError(w, http.StatusNotFound, "not_found", "Route not found")
 	}

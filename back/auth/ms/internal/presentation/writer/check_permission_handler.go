@@ -39,12 +39,12 @@ func (a *Handlers) checkPermission(w http.ResponseWriter, r *http.Request) {
 		a.Fail(w, err)
 		return
 	}
-	allowed, err := a.Authorization.HasPermission(r.Context(), appauthorization.HasPermissionParams{
+	result, err := a.Authorization.CheckPermission(r.Context(), appauthorization.CheckPermissionRequester{
 		UserID: in.UserID, PermissionCode: in.Permission, TenantID: tenant,
 	})
 	if err != nil {
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, 200, map[string]bool{"allowed": allowed})
+	shared.WriteJSON(w, 200, map[string]bool{"allowed": result.Allowed})
 }

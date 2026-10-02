@@ -1,11 +1,9 @@
 package roles
 
-type Presenter struct {
-	ID          string
+type CreateRequester struct {
 	Code        string
 	Name        string
 	Description string
 	Scope       string
 	TenantID    *string
-	Enabled     bool
 }

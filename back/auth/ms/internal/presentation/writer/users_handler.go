@@ -5,7 +5,6 @@ import (
 	"strings"
 	"superapp/auth/internal/core/domain"
 	appauthorization "superapp/auth/internal/core/usecases/authorization"
-	appusers "superapp/auth/internal/core/usecases/users"
 	dtoAuth "superapp/auth/internal/presentation/dto/auth"
 	"superapp/auth/internal/presentation/mapper"
 	"superapp/auth/internal/presentation/reader"
@@ -62,17 +61,11 @@ func (a *Handlers) userRoute(w http.ResponseWriter, r *http.Request, p []string)
 		if _, ok = a.RequireSystemPermission(w, r, "auth.users.manage"); !ok {
 			return
 		}
-		var in struct {
-			Email    *string `json:"email"`
-			FullName *string `json:"full_name"`
-			Status   *string `json:"status"`
-		}
-		if !shared.Decode(w, r, &in) {
+		request, ok := reader.UpdateUserRequest(w, r, target)
+		if !ok {
 			return
 		}
-		if err := a.Users.UpdateUser(r.Context(), appusers.UpdateParams{
-			ID: target, Email: in.Email, FullName: in.FullName, Status: in.Status,
-		}); err != nil {
+		if _, err := a.Users.UpdateUser(r.Context(), request); err != nil {
 			a.Fail(w, err)
 			return
 		}
@@ -83,13 +76,11 @@ func (a *Handlers) userRoute(w http.ResponseWriter, r *http.Request, p []string)
 		if _, ok = a.RequireSystemPermission(w, r, "auth.users.manage"); !ok {
 			return
 		}
-		var in struct {
-			RoleID string `json:"role_id"`
-		}
-		if !shared.Decode(w, r, &in) {
+		request, ok := reader.AssignRoleRequest(w, r, target, tenant, id.UserID)
+		if !ok {
 			return
 		}
-		if !shared.ValidUUID(in.RoleID) {
+		if !shared.ValidUUID(request.RoleID) {
 			a.Fail(w, domain.ErrInvalidArgument)
 			return
 		}
@@ -101,9 +92,8 @@ func (a *Handlers) userRoute(w http.ResponseWriter, r *http.Request, p []string)
 				return
 			}
 		}
-		a.Respond(w, a.Authorization.AssignRole(r.Context(), appauthorization.AssignRoleParams{
-			UserID: target, RoleID: in.RoleID, TenantID: tenant, ActorID: id.UserID,
-		}), 201, map[string]string{"status": "assigned"})
+		_, err := a.Authorization.AssignRole(r.Context(), request)
+		a.Respond(w, err, 201, map[string]string{"status": "assigned"})
 		return
 	}
 	if len(p) == 4 && p[2] == "roles" && r.Method == "DELETE" {
@@ -114,9 +104,10 @@ func (a *Handlers) userRoute(w http.ResponseWriter, r *http.Request, p []string)
 			a.Fail(w, domain.ErrInvalidArgument)
 			return
 		}
-		a.Respond(w, a.Authorization.RevokeRole(r.Context(), appauthorization.RevokeRoleParams{
+		_, err := a.Authorization.RevokeRole(r.Context(), appauthorization.RevokeRoleParams{
 			UserID: target, RoleID: p[3], TenantID: tenant,
-		}), 204, nil)
+		})
+		a.Respond(w, err, 204, nil)
 		return
 	}
 	shared.WriteError(w, 404, "not_found", "Route not found")

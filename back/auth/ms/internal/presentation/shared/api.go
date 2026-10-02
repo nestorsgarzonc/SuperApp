@@ -2,17 +2,16 @@ package httpapi
 
 import (
 	"context"
-	"superapp/auth/internal/core/domain"
 	"superapp/auth/internal/core/ports/security"
 	"superapp/auth/internal/core/usecases/auth/login"
 	"superapp/auth/internal/core/usecases/auth/logout"
 	"superapp/auth/internal/core/usecases/auth/refresh"
 	"superapp/auth/internal/core/usecases/auth/register"
-	appauthorization "superapp/auth/internal/core/usecases/authorization"
-	createpermission "superapp/auth/internal/core/usecases/permissions"
-	createrole "superapp/auth/internal/core/usecases/roles"
+	"superapp/auth/internal/core/usecases/authorization"
+	"superapp/auth/internal/core/usecases/permissions"
+	"superapp/auth/internal/core/usecases/roles"
 	appsessions "superapp/auth/internal/core/usecases/sessions"
-	appusers "superapp/auth/internal/core/usecases/users"
+	"superapp/auth/internal/core/usecases/users"
 )
 
 type LoginUseCase interface {
@@ -27,90 +26,80 @@ type RefreshUseCase interface {
 type LogoutUseCase interface {
 	Execute(context.Context, logout.Requester) (logout.Presenter, error)
 }
-type CreateRoleUseCase interface {
-	CreateRoleFromRequest(context.Context, createrole.Requester) (createrole.Presenter, error)
-}
-type CreatePermissionUseCase interface {
-	CreatePermissionFromRequest(context.Context, createpermission.Requester) (createpermission.Presenter, error)
-}
 type TokenReader interface {
 	Verify(string) (*security.TokenClaims, error)
 	JWKS() map[string]any
 }
 
 type UserService interface {
-	User(context.Context, string) (*domain.User, error)
-	UpdateUser(context.Context, appusers.UpdateParams) error
+	GetUser(context.Context, users.GetRequester) (users.Presenter, error)
+	UpdateUser(context.Context, users.UpdateRequester) (users.UpdatePresenter, error)
 }
 
 type SessionService interface {
-	LogoutAll(context.Context, string) error
-	Sessions(context.Context, string) ([]domain.Session, error)
-	RevokeSession(context.Context, appsessions.RevokeParams) error
+	LogoutAll(context.Context, appsessions.LogoutAllRequester) (appsessions.LogoutAllPresenter, error)
+	ListSessions(context.Context, appsessions.ListRequester) (appsessions.ListPresenter, error)
+	RevokeSession(context.Context, appsessions.RevokeParams) (appsessions.RevokePresenter, error)
 }
 
 type RoleService interface {
-	Roles(context.Context, *string) ([]domain.Role, error)
-	RoleByID(context.Context, string, *string) (*domain.Role, error)
-	CreateRole(context.Context, domain.Role) (*domain.Role, error)
-	UpdateRole(context.Context, domain.Role, *string) error
-	DeleteRole(context.Context, string, *string) error
+	CreateRole(context.Context, roles.CreateRequester) (roles.Presenter, error)
+	UpdateRole(context.Context, roles.UpdateRequester) (roles.Presenter, error)
+	DeleteRole(context.Context, roles.DeleteRequester) (roles.DeletePresenter, error)
+	GetRole(context.Context, roles.GetRequester) (roles.Presenter, error)
+	ListRoles(context.Context, roles.ListRequester) (roles.ListPresenter, error)
 }
 
 type PermissionService interface {
-	Permissions(context.Context) ([]domain.Permission, error)
-	PermissionByID(context.Context, string) (*domain.Permission, error)
-	CreatePermission(context.Context, domain.Permission) (*domain.Permission, error)
-	UpdatePermission(context.Context, domain.Permission) error
-	DeletePermission(context.Context, string) error
+	CreatePermission(context.Context, permissions.CreateRequester) (permissions.Presenter, error)
+	UpdatePermission(context.Context, permissions.UpdateRequester) (permissions.Presenter, error)
+	DeletePermission(context.Context, permissions.DeleteRequester) (permissions.DeletePresenter, error)
+	GetPermission(context.Context, permissions.GetRequester) (permissions.Presenter, error)
+	ListPermissions(context.Context, permissions.ListRequester) (permissions.ListPresenter, error)
 }
 
 type AuthorizationService interface {
-	HasPermission(context.Context, appauthorization.HasPermissionParams) (bool, error)
-	EffectivePermissions(context.Context, string, *string) ([]string, error)
-	EffectiveRoles(context.Context, string, *string) ([]domain.Role, error)
-	GrantPermission(context.Context, appauthorization.RolePermissionParams) error
-	RevokePermission(context.Context, appauthorization.RolePermissionParams) error
-	AssignRole(context.Context, appauthorization.AssignRoleParams) error
-	RevokeRole(context.Context, appauthorization.RevokeRoleParams) error
+	CheckPermission(context.Context, authorization.CheckPermissionRequester) (authorization.CheckPermissionPresenter, error)
+	EffectivePermissions(context.Context, authorization.EffectivePermissionsRequester) (authorization.EffectivePermissionsPresenter, error)
+	EffectiveRoles(context.Context, authorization.EffectiveRolesRequester) (authorization.EffectiveRolesPresenter, error)
+	GrantPermission(context.Context, authorization.RolePermissionParams) (authorization.Presenter, error)
+	RevokePermission(context.Context, authorization.RolePermissionParams) (authorization.Presenter, error)
+	AssignRole(context.Context, authorization.AssignRoleParams) (authorization.Presenter, error)
+	RevokeRole(context.Context, authorization.RevokeRoleParams) (authorization.Presenter, error)
 }
 
 type Services struct {
-	Login            LoginUseCase
-	Register         RegisterUseCase
-	Refresh          RefreshUseCase
-	Logout           LogoutUseCase
-	CreateRole       CreateRoleUseCase
-	CreatePermission CreatePermissionUseCase
-	Tokens           TokenReader
-	Users            UserService
-	Sessions         SessionService
-	Roles            RoleService
-	Permissions      PermissionService
-	Authorization    AuthorizationService
+	Login         LoginUseCase
+	Register      RegisterUseCase
+	Refresh       RefreshUseCase
+	Logout        LogoutUseCase
+	Tokens        TokenReader
+	Users         UserService
+	Sessions      SessionService
+	Roles         RoleService
+	Permissions   PermissionService
+	Authorization AuthorizationService
 }
 
 type API struct {
-	Login            LoginUseCase
-	Register         RegisterUseCase
-	Refresh          RefreshUseCase
-	Logout           LogoutUseCase
-	CreateRole       CreateRoleUseCase
-	CreatePermission CreatePermissionUseCase
-	Tokens           TokenReader
-	Users            UserService
-	Sessions         SessionService
-	Roles            RoleService
-	Permissions      PermissionService
-	Authorization    AuthorizationService
-	TenantSecret     []byte
+	Login         LoginUseCase
+	Register      RegisterUseCase
+	Refresh       RefreshUseCase
+	Logout        LogoutUseCase
+	Tokens        TokenReader
+	Users         UserService
+	Sessions      SessionService
+	Roles         RoleService
+	Permissions   PermissionService
+	Authorization AuthorizationService
+	TenantSecret  []byte
 }
 type Identity struct{ UserID, Email, SessionID string }
 
 func New(services Services, secret []byte) *API {
 	return &API{
 		Login: services.Login, Register: services.Register, Refresh: services.Refresh,
-		Logout: services.Logout, CreateRole: services.CreateRole, CreatePermission: services.CreatePermission,
+		Logout: services.Logout,
 		Tokens: services.Tokens, Users: services.Users, Sessions: services.Sessions,
 		Roles: services.Roles, Permissions: services.Permissions,
 		Authorization: services.Authorization, TenantSecret: secret,

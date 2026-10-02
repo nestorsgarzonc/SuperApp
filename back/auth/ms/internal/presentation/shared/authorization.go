@@ -37,14 +37,14 @@ func (a *API) RequirePermission(w http.ResponseWriter, r *http.Request, permissi
 		a.Fail(w, err)
 		return Identity{}, false
 	}
-	allowed, err := a.Authorization.HasPermission(r.Context(), appauthorization.HasPermissionParams{
+	result, err := a.Authorization.CheckPermission(r.Context(), appauthorization.CheckPermissionRequester{
 		UserID: id.UserID, PermissionCode: permission, TenantID: tenant,
 	})
 	if err != nil {
 		a.Fail(w, err)
 		return Identity{}, false
 	}
-	if !allowed {
+	if !result.Allowed {
 		WriteError(w, 403, "forbidden", "Permission denied")
 		return Identity{}, false
 	}
@@ -56,14 +56,14 @@ func (a *API) RequireSystemPermission(w http.ResponseWriter, r *http.Request, pe
 	if !ok {
 		return Identity{}, false
 	}
-	allowed, err := a.Authorization.HasPermission(r.Context(), appauthorization.HasPermissionParams{
+	result, err := a.Authorization.CheckPermission(r.Context(), appauthorization.CheckPermissionRequester{
 		UserID: id.UserID, PermissionCode: permission,
 	})
 	if err != nil {
 		a.Fail(w, err)
 		return Identity{}, false
 	}
-	if !allowed {
+	if !result.Allowed {
 		WriteError(w, 403, "forbidden", "Permission denied")
 		return Identity{}, false
 	}

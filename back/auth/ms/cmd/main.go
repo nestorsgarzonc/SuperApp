@@ -51,7 +51,6 @@ func main() {
 		Refresh:  refresh.New(repo, tokens, uuid.NewString, contracts.Config{AccessTTL: cfg.accessTTL, RefreshTTL: cfg.refreshTTL}),
 		Logout:   logout.New(repo), Tokens: tokens,
 		Users: service, Sessions: service,
-		CreateRole: service, CreatePermission: service,
 		Roles: service, Permissions: service, Authorization: service,
 	}
 	server := &http.Server{Addr: cfg.addr, Handler: httpapi.New(services, cfg.gatewayTenantSecret), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
