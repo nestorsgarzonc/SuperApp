@@ -16,6 +16,9 @@ type PostgresConfig struct {
 	Password        string
 	Database        string
 	SSLMode         string
+	// SSLRootCert, when set, points at a CA bundle (e.g. RDS's
+	// global-bundle.pem) so sslmode=verify-full can validate the server cert.
+	SSLRootCert     string
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
@@ -30,6 +33,9 @@ func NewPostgresClient(cfg PostgresConfig) (*PostgresClient, error) {
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.Database, cfg.SSLMode,
 	)
+	if cfg.SSLRootCert != "" {
+		dsn += fmt.Sprintf(" sslrootcert=%s", cfg.SSLRootCert)
+	}
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {

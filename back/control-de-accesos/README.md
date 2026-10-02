@@ -151,6 +151,37 @@ docker compose down        # detiene los contenedores
 docker compose down -v     # además borra los datos (vuelve a sembrar desde cero)
 ```
 
+## Producción / AWS RDS
+
+La idea es que este microservicio, cuando se despliegue, guarde sus datos en
+**RDS (Postgres)** en vez del Postgres de `docker compose`. No hay nada de
+Terraform/IaC aquí — eso es un paso aparte — pero la app ya está lista para
+ese cambio con solo variables de entorno, sin tocar código:
+
+- `DB_HOST` / `DB_PORT` → endpoint de la instancia RDS.
+- `DB_SSLMODE=require` (mínimo) o `verify-full` + `DB_SSLROOTCERT=/ruta/al/global-bundle.pem`
+  (el bundle de CA de RDS) — nunca `disable` contra RDS.
+- `DB_PASSWORD` / `JWT_SECRET` deben venir de Secrets Manager / SSM Parameter
+  Store en el momento del despliegue, no hardcodeados como en el
+  `docker-compose.yml` local.
+- `DB_MAX_OPEN_CONNS` / `DB_MAX_IDLE_CONNS` / `DB_CONN_MAX_LIFETIME_MINUTES` —
+  ajustar según el `max_connections` de la clase de instancia RDS elegida.
+  El valor de `CONN_MAX_LIFETIME` por defecto (5 min) existe para que el pool
+  recicle conexiones periódicamente y así sobreviva un failover de RDS.
+
+Localmente, `docker-entrypoint-initdb.d` aplica `db/migrations/*.sql`
+automáticamente la primera vez que arranca el volumen — RDS no tiene ese
+hook. Para aplicar el esquema ahí (o para repetirlo tras un cambio), corre:
+
+```bash
+DB_HOST=<endpoint-rds> DB_PORT=5432 DB_USER=... DB_PASSWORD=... DB_NAME=... \
+DB_SSLMODE=require ./db/migrate.sh
+```
+
+El script usa `psql` y aplica cada archivo de `db/migrations/` en orden; es
+idempotente (`CREATE TABLE IF NOT EXISTS`, `ON CONFLICT DO NOTHING`), así que
+correrlo de nuevo no rompe nada.
+
 ## Endpoints
 
 | Método | Ruta | Descripción |

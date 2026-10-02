@@ -1,12 +1,18 @@
 services:
   db:
-    image: postgres:16-alpine
+    # Same major version as residential-superapp's docker/postgres (18.x), for
+    # consistency across SuperApp's services.
+    image: postgres:18.6-alpine
     container_name: control_de_accesos_db
     restart: unless-stopped
     environment:
       POSTGRES_USER: control_de_accesos
       POSTGRES_PASSWORD: control_de_accesos
       POSTGRES_DB: control_de_accesos
+      # postgres:18+ rejects a fresh volume mounted directly at
+      # /var/lib/postgresql/data (new pg_ctlcluster layout) — same fix
+      # residential-superapp's docker-compose.yml applies.
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5433:5432"
     volumes:

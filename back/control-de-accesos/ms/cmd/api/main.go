@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"controldeaccesos/internal/access"
 	"controldeaccesos/internal/config"
@@ -52,9 +53,10 @@ func main() {
 		Password:        cfg.DBPassword,
 		Database:        cfg.DBName,
 		SSLMode:         cfg.DBSSLMode,
-		MaxOpenConns:    10,
-		MaxIdleConns:    5,
-		ConnMaxLifetime: 0,
+		SSLRootCert:     cfg.DBSSLRootCert,
+		MaxOpenConns:    cfg.DBMaxOpenConns,
+		MaxIdleConns:    cfg.DBMaxIdleConns,
+		ConnMaxLifetime: time.Duration(cfg.DBConnMaxLifetimeMins) * time.Minute,
 	})
 	if err != nil {
 		logger.Error("failed to connect to database", "error", err)
