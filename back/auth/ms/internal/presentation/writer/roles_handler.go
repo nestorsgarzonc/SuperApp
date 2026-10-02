@@ -11,24 +11,8 @@ import (
 )
 
 func (a *Handlers) roleRoute(w http.ResponseWriter, r *http.Request, p []string) {
-	id, ok := a.Auth(w, r)
+	_, tenant, ok := a.RequirePermissionWithTenant(w, r, "auth.roles.manage")
 	if !ok {
-		return
-	}
-	tenant, err := a.Tenant(r, id.UserID)
-	if err != nil {
-		a.Fail(w, err)
-		return
-	}
-	permission, err := a.Authorization.CheckPermission(r.Context(), appauthorization.CheckPermissionRequester{
-		UserID: id.UserID, PermissionCode: "auth.roles.manage", TenantID: tenant,
-	})
-	if err != nil {
-		a.Fail(w, err)
-		return
-	}
-	if !permission.Allowed {
-		shared.WriteError(w, 403, "forbidden", "Permission denied")
 		return
 	}
 	if len(p) < 2 {
@@ -90,17 +74,21 @@ func (a *Handlers) createRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var id shared.Identity
+	var tenant *string
 	if request.Scope == "SYSTEM" {
 		id, ok = a.RequireSystemPermission(w, r, "auth.roles.manage")
+		if ok {
+			var err error
+			tenant, err = a.Tenant(r, id.UserID)
+			if err != nil {
+				a.Fail(w, err)
+				return
+			}
+		}
 	} else {
-		id, ok = a.RequirePermission(w, r, "auth.roles.manage")
+		id, tenant, ok = a.RequirePermissionWithTenant(w, r, "auth.roles.manage")
 	}
 	if !ok {
-		return
-	}
-	tenant, err := a.Tenant(r, id.UserID)
-	if err != nil {
-		a.Fail(w, err)
 		return
 	}
 	if request.Scope == "TENANT" {

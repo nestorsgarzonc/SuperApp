@@ -46,7 +46,7 @@ func (u *UseCase) Execute(ctx context.Context, request Requester) (Presenter, er
 		return Presenter{}, err
 	}
 	now := u.now()
-	accessToken, accessExpiry, err := u.tokens.Issue(user.ID, user.Email, sessionID)
+	accessToken, accessExpiry, err := u.tokens.Issue(user.ID, sessionID)
 	if err != nil {
 		return Presenter{}, err
 	}
@@ -57,7 +57,7 @@ func (u *UseCase) Execute(ctx context.Context, request Requester) (Presenter, er
 	}); err != nil {
 		return Presenter{}, err
 	}
-	return Presenter{User: user, Tokens: contracts.TokenPair{
+	return Presenter{User: authtokens.NewUserPresenter(user), Tokens: contracts.TokenPair{
 		AccessToken: accessToken, RefreshToken: refreshToken, ExpiresIn: int64(accessExpiry.Sub(now).Seconds()),
 	}}, nil
 }

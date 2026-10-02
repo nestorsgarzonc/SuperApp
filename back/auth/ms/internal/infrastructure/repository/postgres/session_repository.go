@@ -36,11 +36,11 @@ func (r *Repository) RotateRefresh(ctx context.Context, params coreRepository.Ro
 		return coreRepository.RotateRefreshResult{}, err
 	}
 	defer tx.Rollback()
-	var sid, uid, email, status string
+	var sid, uid, status string
 	var oldID string
 	var oldExpiry time.Time
 	var consumed, revoked, sessionRevoked sql.NullTime
-	err = tx.QueryRowContext(ctx, `SELECT t.id,t.session_id,s.user_id,u.email,u.status,t.expires_at,t.consumed_at,t.revoked_at,s.revoked_at FROM auth_refresh_tokens t JOIN auth_sessions s ON s.id=t.session_id JOIN auth_users u ON u.id=s.user_id WHERE t.token_hash=decode($1,'hex') FOR UPDATE OF t,s`, params.OldHash).Scan(&oldID, &sid, &uid, &email, &status, &oldExpiry, &consumed, &revoked, &sessionRevoked)
+	err = tx.QueryRowContext(ctx, `SELECT t.id,t.session_id,s.user_id,u.status,t.expires_at,t.consumed_at,t.revoked_at,s.revoked_at FROM auth_refresh_tokens t JOIN auth_sessions s ON s.id=t.session_id JOIN auth_users u ON u.id=s.user_id WHERE t.token_hash=decode($1,'hex') FOR UPDATE OF t,s`, params.OldHash).Scan(&oldID, &sid, &uid, &status, &oldExpiry, &consumed, &revoked, &sessionRevoked)
 	if errors.Is(err, sql.ErrNoRows) {
 		return coreRepository.RotateRefreshResult{}, domain.ErrInvalidToken
 	}
@@ -82,7 +82,7 @@ func (r *Repository) RotateRefresh(ctx context.Context, params coreRepository.Ro
 	if err = tx.Commit(); err != nil {
 		return coreRepository.RotateRefreshResult{}, err
 	}
-	return coreRepository.RotateRefreshResult{SessionID: sid, UserID: uid, Email: email}, nil
+	return coreRepository.RotateRefreshResult{SessionID: sid, UserID: uid}, nil
 }
 
 func (r *Repository) RevokeRefresh(ctx context.Context, hash string) error {

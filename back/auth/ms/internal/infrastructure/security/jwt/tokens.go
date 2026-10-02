@@ -57,7 +57,7 @@ func LoadTokens(path, issuer, audience string, ttl time.Duration) (*Tokens, erro
 	fingerprint := sha256.Sum256(pubDER)
 	return &Tokens{private: key, public: &key.PublicKey, kid: base64.RawURLEncoding.EncodeToString(fingerprint[:12]), issuer: issuer, audience: audience, ttl: ttl}, nil
 }
-func (t *Tokens) Issue(userID, email, sessionID string) (string, time.Time, error) {
+func (t *Tokens) Issue(userID, sessionID string) (string, time.Time, error) {
 	now := time.Now()
 	expires := now.Add(t.ttl)
 	c := claims{SessionID: sessionID, RegisteredClaims: jwt.RegisteredClaims{Issuer: t.issuer, Subject: userID, Audience: jwt.ClaimStrings{t.audience}, IssuedAt: jwt.NewNumericDate(now), NotBefore: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(expires), ID: sessionID}}

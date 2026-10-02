@@ -8,7 +8,7 @@ type TokenClaims struct {
 }
 
 type TokenSigner interface {
-	Issue(string, string, string) (string, time.Time, error)
+	Issue(userID, sessionID string) (string, time.Time, error)
 }
 
 type TokenVerifier interface {

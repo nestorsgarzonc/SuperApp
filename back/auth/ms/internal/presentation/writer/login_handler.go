@@ -31,5 +31,5 @@ func (a *Handlers) login(w http.ResponseWriter, r *http.Request) {
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, 200, dtoAuth.LoginResponseDTO{User: mapper.UserResponse(result.User), Tokens: mapper.TokenPairResponse(result.Tokens)})
+	shared.WriteJSON(w, 200, dtoAuth.LoginResponseDTO{User: mapper.AuthUserResponse(result.User), Tokens: mapper.TokenPairResponse(result.Tokens)})
 }

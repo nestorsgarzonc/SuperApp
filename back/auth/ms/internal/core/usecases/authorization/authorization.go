@@ -2,10 +2,14 @@ package authorization
 
 import (
 	"context"
+	"superapp/auth/internal/core/domain"
 	"superapp/auth/internal/core/ports/repository"
 )
 
 func (s *Service) CheckPermission(ctx context.Context, params CheckPermissionRequester) (CheckPermissionPresenter, error) {
+	if !domain.ValidPermissionCode(params.PermissionCode) {
+		return CheckPermissionPresenter{}, domain.ErrInvalidArgument
+	}
 	allowed, err := s.repository.PermissionAllowed(ctx, repository.PermissionAllowedParams{
 		UserID: params.UserID, PermissionCode: params.PermissionCode, TenantID: params.TenantID,
 	})

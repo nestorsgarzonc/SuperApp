@@ -36,7 +36,7 @@ func (u *UseCase) Execute(ctx context.Context, request Requester) (Presenter, er
 	if err != nil {
 		return Presenter{}, err
 	}
-	access, expiry, err := u.tokens.Issue(rotated.UserID, rotated.Email, rotated.SessionID)
+	access, expiry, err := u.tokens.Issue(rotated.UserID, rotated.SessionID)
 	if err != nil {
 		return Presenter{}, err
 	}

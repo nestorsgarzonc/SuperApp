@@ -9,6 +9,7 @@ import (
 	"superapp/auth/internal/core/domain"
 	"superapp/auth/internal/core/ports/repository"
 	"superapp/auth/internal/core/ports/security"
+	authusecase "superapp/auth/internal/core/usecases/auth"
 	authlogin "superapp/auth/internal/core/usecases/auth/login"
 	authlogout "superapp/auth/internal/core/usecases/auth/logout"
 	authrefresh "superapp/auth/internal/core/usecases/auth/refresh"
@@ -103,12 +104,12 @@ func newTestApplication(repo testRepositories, passwords *testPasswords, tokens 
 	}
 }
 
-func (s *testApplication) Register(ctx context.Context, email, password, name string) (*domain.User, error) {
+func (s *testApplication) Register(ctx context.Context, email, password, name string) (authusecase.UserPresenter, error) {
 	result, err := s.register.Execute(ctx, authregister.Requester{Email: email, Password: password, Name: name})
 	return result.User, err
 }
 
-func (s *testApplication) Login(ctx context.Context, email, password, device, userAgent, ip string) (*domain.User, *contracts.TokenPair, error) {
+func (s *testApplication) Login(ctx context.Context, email, password, device, userAgent, ip string) (authusecase.UserPresenter, *contracts.TokenPair, error) {
 	result, err := s.login.Execute(ctx, authlogin.Requester{Email: email, Password: password, Device: device, UserAgent: userAgent, IP: ip})
 	return result.User, &result.Tokens, err
 }
@@ -146,7 +147,7 @@ func (r *testRepository) CreateSession(_ context.Context, params repository.Crea
 func (r *testRepository) RotateRefresh(_ context.Context, params repository.RotateRefreshParams) (repository.RotateRefreshResult, error) {
 	r.refreshHash = params.OldHash
 	r.rotatedHash = params.NewHash
-	return repository.RotateRefreshResult{SessionID: "session", UserID: "user", Email: "user@example.test"}, nil
+	return repository.RotateRefreshResult{SessionID: "session", UserID: "user"}, nil
 }
 func (r *testRepository) CreateRole(context.Context, domain.Role) error { return nil }
 
@@ -166,7 +167,7 @@ func (p *testPasswords) Burn(string) { p.burned++ }
 
 type testTokens struct{}
 
-func (testTokens) Issue(string, string, string) (string, time.Time, error) {
+func (testTokens) Issue(string, string) (string, time.Time, error) {
 	return "signed-access-token", time.Now().Add(time.Minute), nil
 }
 func (testTokens) Verify(string) (*security.TokenClaims, error) { return nil, nil }
@@ -191,6 +192,16 @@ func TestRegisterRejectsWeakPassword(t *testing.T) {
 		t.Fatalf("expected invalid argument, got %v", err)
 	}
 }
+func TestCheckPermissionRejectsInvalidCode(t *testing.T) {
+	service := authorizationusecase.New(&testRepository{})
+	_, err := service.CheckPermission(context.Background(), authorizationusecase.CheckPermissionRequester{
+		UserID: "user-id", PermissionCode: "invalid permission code",
+	})
+	if !errors.Is(err, domain.ErrInvalidArgument) {
+		t.Fatalf("expected invalid argument, got %v", err)
+	}
+}
+
 func TestLoginGenericCredentialsAndCreatesSession(t *testing.T) {
 	pw := &testPasswords{}
 	repo := &testRepository{user: &domain.User{ID: "u1", Email: "user@example.test", Status: "ACTIVE"}, hash: "hash"}

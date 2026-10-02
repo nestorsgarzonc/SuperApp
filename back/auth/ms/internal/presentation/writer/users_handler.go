@@ -23,7 +23,7 @@ func (a *Handlers) createUser(w http.ResponseWriter, r *http.Request) {
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, 201, dtoAuth.RegisterResponseDTO(mapper.UserResponse(result.User)))
+	shared.WriteJSON(w, 201, dtoAuth.RegisterResponseDTO(mapper.AuthUserResponse(result.User)))
 }
 func (a *Handlers) userRoute(w http.ResponseWriter, r *http.Request, p []string) {
 	if len(p) < 2 {

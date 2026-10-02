@@ -28,27 +28,32 @@ func (a *API) Auth(w http.ResponseWriter, r *http.Request) (Identity, bool) {
 }
 
 func (a *API) RequirePermission(w http.ResponseWriter, r *http.Request, permission string) (Identity, bool) {
+	identity, _, ok := a.RequirePermissionWithTenant(w, r, permission)
+	return identity, ok
+}
+
+func (a *API) RequirePermissionWithTenant(w http.ResponseWriter, r *http.Request, permission string) (Identity, *string, bool) {
 	id, ok := a.Auth(w, r)
 	if !ok {
-		return Identity{}, false
+		return Identity{}, nil, false
 	}
 	tenant, err := a.Tenant(r, id.UserID)
 	if err != nil {
 		a.Fail(w, err)
-		return Identity{}, false
+		return Identity{}, nil, false
 	}
 	result, err := a.Authorization.CheckPermission(r.Context(), appauthorization.CheckPermissionRequester{
 		UserID: id.UserID, PermissionCode: permission, TenantID: tenant,
 	})
 	if err != nil {
 		a.Fail(w, err)
-		return Identity{}, false
+		return Identity{}, nil, false
 	}
 	if !result.Allowed {
 		WriteError(w, 403, "forbidden", "Permission denied")
-		return Identity{}, false
+		return Identity{}, nil, false
 	}
-	return id, true
+	return id, tenant, true
 }
 
 func (a *API) RequireSystemPermission(w http.ResponseWriter, r *http.Request, permission string) (Identity, bool) {

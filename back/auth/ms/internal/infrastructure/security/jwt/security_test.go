@@ -25,7 +25,7 @@ func TestRS256TokensAndJWKS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, _, err := tokens.Issue("user-1", "user@example.test", "session-1")
+	raw, _, err := tokens.Issue("user-1", "session-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestExpiredTokenRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, _, err := tokens.Issue("u", "e", "s")
+	raw, _, err := tokens.Issue("u", "s")
 	if err != nil {
 		t.Fatal(err)
 	}

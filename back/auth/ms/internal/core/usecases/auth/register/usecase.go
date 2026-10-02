@@ -9,6 +9,7 @@ import (
 	"superapp/auth/internal/core/domain"
 	"superapp/auth/internal/core/ports/repository"
 	"superapp/auth/internal/core/ports/security"
+	"superapp/auth/internal/core/usecases/auth"
 )
 
 type UseCase struct {
@@ -40,5 +41,5 @@ func (u *UseCase) Execute(ctx context.Context, request Requester) (Presenter, er
 	if err != nil {
 		return Presenter{}, err
 	}
-	return Presenter{User: user}, nil
+	return Presenter{User: auth.NewUserPresenter(user)}, nil
 }

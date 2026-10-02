@@ -1,7 +1,9 @@
 package mapper
 
 import (
-	"superapp/auth/internal/core/domain"
+	"time"
+
+	authusecase "superapp/auth/internal/core/usecases/auth"
 	"superapp/auth/internal/core/usecases/authorization"
 	"superapp/auth/internal/core/usecases/contracts"
 	"superapp/auth/internal/core/usecases/permissions"
@@ -15,12 +17,16 @@ import (
 	dtoUsers "superapp/auth/internal/presentation/dto/users"
 )
 
-func UserResponse(user *domain.User) dtoUsers.UserResponse {
-	return dtoUsers.UserResponse{ID: user.ID, Email: user.Email, FullName: user.FullName, Status: user.Status, CreatedAt: user.CreatedAt}
+func AuthUserResponse(user authusecase.UserPresenter) dtoUsers.UserResponse {
+	return userResponse(user.ID, user.Email, user.FullName, user.Status, user.CreatedAt)
 }
 
 func UserPresenterResponse(user users.Presenter) dtoUsers.UserResponse {
-	return dtoUsers.UserResponse{ID: user.ID, Email: user.Email, FullName: user.FullName, Status: user.Status, CreatedAt: user.CreatedAt}
+	return userResponse(user.ID, user.Email, user.FullName, user.Status, user.CreatedAt)
+}
+
+func userResponse(id, email, fullName, status string, createdAt time.Time) dtoUsers.UserResponse {
+	return dtoUsers.UserResponse{ID: id, Email: email, FullName: fullName, Status: status, CreatedAt: createdAt}
 }
 
 func RoleResponse(role roles.Presenter) dtoRoles.RoleResponse {
