@@ -22,4 +22,4 @@ type PasswordHasher interface {
 	Verify(string, string) error
 	Burn(string)
 }
-type IDGenerator interface{ New() string }
+type IDGenerator func() string

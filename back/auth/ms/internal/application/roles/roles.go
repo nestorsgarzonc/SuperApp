@@ -19,7 +19,7 @@ func (s *Service) CreateRole(ctx context.Context, r domain.Role) error {
 	}
 	r.Enabled = true
 	if r.ID == "" {
-		r.ID = s.ids.New()
+		r.ID = s.newID()
 	}
 	return s.repository.CreateRole(ctx, r)
 }

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"golang.org/x/crypto/bcrypt"
 	"superapp/auth/internal/domain"
-	"superapp/auth/internal/infrastructure/ids"
 )
 
 func main() {
@@ -51,7 +51,7 @@ func main() {
 	if err != nil {
 		fatal(err.Error())
 	}
-	uid := ids.UUID{}.New()
+	uid := uuid.NewString()
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		fatal(err.Error())
@@ -61,7 +61,7 @@ func main() {
 	if err != nil {
 		fatal(err.Error())
 	}
-	res, err := tx.ExecContext(ctx, `INSERT INTO auth_user_roles(id,user_id,role_id,assigned_by) SELECT $1,$2,id,$2 FROM auth_roles WHERE code='AUTH_PLATFORM_ADMIN' AND scope='SYSTEM' AND tenant_id IS NULL`, ids.UUID{}.New(), uid)
+	res, err := tx.ExecContext(ctx, `INSERT INTO auth_user_roles(id,user_id,role_id,assigned_by) SELECT $1,$2,id,$2 FROM auth_roles WHERE code='AUTH_PLATFORM_ADMIN' AND scope='SYSTEM' AND tenant_id IS NULL`, uuid.NewString(), uid)
 	if err != nil {
 		fatal(err.Error())
 	}

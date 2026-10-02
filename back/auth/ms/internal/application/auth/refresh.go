@@ -16,7 +16,7 @@ func (s *Service) Refresh(ctx context.Context, raw string) (*contracts.TokenPair
 		return nil, err
 	}
 	now := s.now()
-	sessionID, userID, email, err := s.sessions.RotateRefresh(ctx, oldHash, newHash, s.ids.New(), now.Add(s.cfg.RefreshTTL), now)
+	sessionID, userID, email, err := s.sessions.RotateRefresh(ctx, oldHash, newHash, s.newID(), now.Add(s.cfg.RefreshTTL), now)
 	if err != nil {
 		return nil, err
 	}

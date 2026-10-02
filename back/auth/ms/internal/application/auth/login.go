@@ -28,7 +28,7 @@ func (s *Service) Login(ctx context.Context, email, password, device, ua, ip str
 	return u, pair, err
 }
 func (s *Service) newSession(ctx context.Context, u *domain.User, device, ua, ip string) (*contracts.TokenPair, error) {
-	sessionID := s.ids.New()
+	sessionID := s.newID()
 	raw, hash, err := newRefresh()
 	if err != nil {
 		return nil, err

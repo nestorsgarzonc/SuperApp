@@ -11,7 +11,7 @@ func (s *Service) CreatePermission(ctx context.Context, p domain.Permission) err
 		return fmt.Errorf("%w: permission code or description is invalid", domain.ErrInvalidArgument)
 	}
 	if p.ID == "" {
-		p.ID = s.ids.New()
+		p.ID = s.newID()
 	}
 	return s.repository.CreatePermission(ctx, p)
 }

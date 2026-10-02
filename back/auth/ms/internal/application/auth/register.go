@@ -21,5 +21,5 @@ func (s *Service) Register(ctx context.Context, email, password, name string) (*
 	if err != nil {
 		return nil, err
 	}
-	return s.users.CreateUser(ctx, s.ids.New(), email, hash, strings.TrimSpace(name))
+	return s.users.CreateUser(ctx, s.newID(), email, hash, strings.TrimSpace(name))
 }

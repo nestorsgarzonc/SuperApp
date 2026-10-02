@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"superapp/auth/internal/application"
-	"superapp/auth/internal/infrastructure/ids"
 	"superapp/auth/internal/infrastructure/persistence/postgres"
 	"superapp/auth/internal/infrastructure/security"
 	httpapi "superapp/auth/internal/presentation/http/server"
 
+	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -39,7 +39,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	service := application.New(postgres.New(db), security.Passwords{}, tokens, ids.UUID{}, application.Config{AccessTTL: cfg.accessTTL, RefreshTTL: cfg.refreshTTL})
+	service := application.New(postgres.New(db), security.Passwords{}, tokens, uuid.NewString, application.Config{AccessTTL: cfg.accessTTL, RefreshTTL: cfg.refreshTTL})
 	server := &http.Server{Addr: cfg.addr, Handler: httpapi.New(service, cfg.gatewayTenantSecret), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

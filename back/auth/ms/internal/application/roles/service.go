@@ -7,9 +7,9 @@ import (
 
 type Service struct {
 	repository repository.RoleRepository
-	ids        contracts.IDGenerator
+	newID      contracts.IDGenerator
 }
 
-func New(repository repository.RoleRepository, ids contracts.IDGenerator) *Service {
-	return &Service{repository: repository, ids: ids}
+func New(repository repository.RoleRepository, newID contracts.IDGenerator) *Service {
+	return &Service{repository: repository, newID: newID}
 }
