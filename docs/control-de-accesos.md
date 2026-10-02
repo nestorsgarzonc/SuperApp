@@ -205,10 +205,3 @@ DB_SSLMODE=require ./db/migrate.sh
 | `access.grant_cancelled` | `CancelAccessGrant` |
 
 Payload: `{type, complex_id, unit_id, grant_id, visitor_name, method}`.
-
-## Lo que se dejó fuera a propósito
-
-Todo lo de **llamadas** (intercom/citofonía) del feature `access` original:
-`StartCall`, `AnswerCall`, `AcceptIncomingCall`, `DeclineIncomingCall`,
-`EndCall`, `FallbackGSM`, logs e stats de llamadas, LiveKit y notificaciones
-push — eso es otro feature y no se tocó en este backend.
