@@ -8,6 +8,8 @@ import (
 	"superapp/auth/internal/core/usecases/auth/logout"
 	"superapp/auth/internal/core/usecases/auth/refresh"
 	"superapp/auth/internal/core/usecases/auth/register"
+	createpermission "superapp/auth/internal/core/usecases/permissions"
+	createrole "superapp/auth/internal/core/usecases/roles"
 )
 
 type LoginUseCase interface {
@@ -21,6 +23,12 @@ type RefreshUseCase interface {
 }
 type LogoutUseCase interface {
 	Execute(context.Context, logout.Requester) (logout.Presenter, error)
+}
+type CreateRoleUseCase interface {
+	CreateRoleFromRequest(context.Context, createrole.Requester) (createrole.Presenter, error)
+}
+type CreatePermissionUseCase interface {
+	CreatePermissionFromRequest(context.Context, createpermission.Requester) (createpermission.Presenter, error)
 }
 type TokenReader interface {
 	Verify(string) (*security.TokenClaims, error)
@@ -65,37 +73,42 @@ type AuthorizationService interface {
 }
 
 type Services struct {
-	Login         LoginUseCase
-	Register      RegisterUseCase
-	Refresh       RefreshUseCase
-	Logout        LogoutUseCase
-	Tokens        TokenReader
-	Users         UserService
-	Sessions      SessionService
-	Roles         RoleService
-	Permissions   PermissionService
-	Authorization AuthorizationService
+	Login            LoginUseCase
+	Register         RegisterUseCase
+	Refresh          RefreshUseCase
+	Logout           LogoutUseCase
+	CreateRole       CreateRoleUseCase
+	CreatePermission CreatePermissionUseCase
+	Tokens           TokenReader
+	Users            UserService
+	Sessions         SessionService
+	Roles            RoleService
+	Permissions      PermissionService
+	Authorization    AuthorizationService
 }
 
 type API struct {
-	Login         LoginUseCase
-	Register      RegisterUseCase
-	Refresh       RefreshUseCase
-	Logout        LogoutUseCase
-	Tokens        TokenReader
-	Users         UserService
-	Sessions      SessionService
-	Roles         RoleService
-	Permissions   PermissionService
-	Authorization AuthorizationService
-	TenantSecret  []byte
+	Login            LoginUseCase
+	Register         RegisterUseCase
+	Refresh          RefreshUseCase
+	Logout           LogoutUseCase
+	CreateRole       CreateRoleUseCase
+	CreatePermission CreatePermissionUseCase
+	Tokens           TokenReader
+	Users            UserService
+	Sessions         SessionService
+	Roles            RoleService
+	Permissions      PermissionService
+	Authorization    AuthorizationService
+	TenantSecret     []byte
 }
 type Identity struct{ UserID, Email, SessionID string }
 
 func New(services Services, secret []byte) *API {
 	return &API{
 		Login: services.Login, Register: services.Register, Refresh: services.Refresh,
-		Logout: services.Logout, Tokens: services.Tokens, Users: services.Users, Sessions: services.Sessions,
+		Logout: services.Logout, CreateRole: services.CreateRole, CreatePermission: services.CreatePermission,
+		Tokens: services.Tokens, Users: services.Users, Sessions: services.Sessions,
 		Roles: services.Roles, Permissions: services.Permissions,
 		Authorization: services.Authorization, TenantSecret: secret,
 	}

@@ -3,7 +3,7 @@ package reader
 import (
 	"net/http"
 	"superapp/auth/internal/core/domain"
-	dtoPermissions "superapp/auth/internal/presentation/dto/permissions"
+	"superapp/auth/internal/presentation/mapper"
 	shared "superapp/auth/internal/presentation/shared"
 )
 
@@ -16,7 +16,7 @@ func (a *Handlers) listPermissions(w http.ResponseWriter, r *http.Request) {
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, 200, dtoPermissions.ListFromDomain(v))
+	shared.WriteJSON(w, 200, mapper.PermissionResponses(v))
 }
 
 func (a *Handlers) permissionRoute(w http.ResponseWriter, r *http.Request, p []string) {
@@ -36,5 +36,5 @@ func (a *Handlers) permissionRoute(w http.ResponseWriter, r *http.Request, p []s
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, http.StatusOK, dtoPermissions.FromDomain(permission))
+	shared.WriteJSON(w, http.StatusOK, mapper.PermissionResponse(permission))
 }

@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"superapp/auth/internal/core/domain"
 	dtoRoles "superapp/auth/internal/presentation/dto/roles"
+	"superapp/auth/internal/presentation/mapper"
+	"superapp/auth/internal/presentation/reader"
 	shared "superapp/auth/internal/presentation/shared"
 )
 
@@ -41,11 +43,7 @@ func (a *Handlers) roleRoute(w http.ResponseWriter, r *http.Request, p []string)
 			a.Fail(w, err)
 			return
 		}
-		var in struct {
-			Name        *string `json:"name"`
-			Description *string `json:"description"`
-			Enabled     *bool   `json:"enabled"`
-		}
+		var in dtoRoles.UpdateRequestDTO
 		if !shared.Decode(w, r, &in) {
 			return
 		}
@@ -66,7 +64,7 @@ func (a *Handlers) roleRoute(w http.ResponseWriter, r *http.Request, p []string)
 			a.Fail(w, err)
 			return
 		}
-		shared.WriteJSON(w, 200, dtoRoles.FromDomain(current))
+		shared.WriteJSON(w, 200, mapper.RoleResponse(current))
 		return
 	}
 	if len(p) == 2 && r.Method == "DELETE" {
@@ -98,19 +96,12 @@ func (a *Handlers) roleRoute(w http.ResponseWriter, r *http.Request, p []string)
 	shared.WriteError(w, 404, "not_found", "Route not found")
 }
 func (a *Handlers) createRole(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Code        string `json:"code"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Scope       string `json:"scope"`
-	}
-	if !shared.Decode(w, r, &in) {
+	request, ok := reader.CreateRoleRequest(w, r)
+	if !ok {
 		return
 	}
-	v := domain.Role{Code: in.Code, Name: in.Name, Description: in.Description, Scope: in.Scope}
 	var id shared.Identity
-	var ok bool
-	if v.Scope == "SYSTEM" {
+	if request.Scope == "SYSTEM" {
 		id, ok = a.RequireSystemPermission(w, r, "auth.roles.manage")
 	} else {
 		id, ok = a.RequirePermission(w, r, "auth.roles.manage")
@@ -123,19 +114,19 @@ func (a *Handlers) createRole(w http.ResponseWriter, r *http.Request) {
 		a.Fail(w, err)
 		return
 	}
-	if v.Scope == "TENANT" {
+	if request.Scope == "TENANT" {
 		if tenant == nil {
 			shared.WriteError(w, 403, "tenant_required", "Tenant context required")
 			return
 		}
-		v.TenantID = tenant
+		request.TenantID = tenant
 	} else {
-		v.TenantID = nil
+		request.TenantID = nil
 	}
-	created, err := a.Roles.CreateRole(r.Context(), v)
+	created, err := a.CreateRole.CreateRoleFromRequest(r.Context(), request)
 	if err != nil {
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, 201, dtoRoles.FromDomain(created))
+	shared.WriteJSON(w, 201, mapper.CreatedRoleResponse(created))
 }

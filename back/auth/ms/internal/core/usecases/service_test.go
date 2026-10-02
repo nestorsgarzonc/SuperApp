@@ -14,6 +14,8 @@ import (
 	authrefresh "superapp/auth/internal/core/usecases/auth/refresh"
 	authregister "superapp/auth/internal/core/usecases/auth/register"
 	"superapp/auth/internal/core/usecases/contracts"
+	permissionusecase "superapp/auth/internal/core/usecases/permissions"
+	roleusecase "superapp/auth/internal/core/usecases/roles"
 )
 
 type testRepository struct {
@@ -356,7 +358,7 @@ func TestRolePermissionManagementAndAuthorizationDelegation(t *testing.T) {
 		allowed:              true,
 	}
 	s := newTestApplication(repo, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
-	createdRole, err := s.CreateRole(context.Background(), domain.Role{Code: "TENANT_ADMIN", Name: "Tenant Admin", Scope: "TENANT", TenantID: &tenant})
+	createdRole, err := s.CreateRoleFromRequest(context.Background(), roleusecase.Requester{Code: "TENANT_ADMIN", Name: "Tenant Admin", Scope: "TENANT", TenantID: &tenant})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +371,7 @@ func TestRolePermissionManagementAndAuthorizationDelegation(t *testing.T) {
 	if err := s.DeleteRole(context.Background(), "role-1", &tenant); err != nil || repo.deletedRoleID != "role-1" {
 		t.Fatalf("role delete not delegated: id=%s err=%v", repo.deletedRoleID, err)
 	}
-	createdPermission, err := s.CreatePermission(context.Background(), domain.Permission{Code: "homes.read", Description: "Read homes"})
+	createdPermission, err := s.CreatePermissionFromRequest(context.Background(), permissionusecase.Requester{Code: "homes.read", Description: "Read homes"})
 	if err != nil {
 		t.Fatal(err)
 	}

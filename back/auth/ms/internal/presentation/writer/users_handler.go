@@ -4,8 +4,9 @@ import (
 	"net/http"
 	"strings"
 	"superapp/auth/internal/core/domain"
-	"superapp/auth/internal/core/usecases/auth/register"
-	dtoUsers "superapp/auth/internal/presentation/dto/users"
+	dtoAuth "superapp/auth/internal/presentation/dto/auth"
+	"superapp/auth/internal/presentation/mapper"
+	"superapp/auth/internal/presentation/reader"
 	shared "superapp/auth/internal/presentation/shared"
 )
 
@@ -13,24 +14,20 @@ func (a *Handlers) createUser(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.RequireSystemPermission(w, r, "auth.users.manage"); !ok {
 		return
 	}
-	var in struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-		FullName string `json:"full_name"`
-	}
-	if !shared.Decode(w, r, &in) {
+	request, ok := reader.RegisterRequest(w, r)
+	if !ok {
 		return
 	}
-	if strings.TrimSpace(in.Email) == "" || strings.TrimSpace(in.FullName) == "" {
+	if strings.TrimSpace(request.Email) == "" || strings.TrimSpace(request.Name) == "" {
 		a.Fail(w, domain.ErrInvalidArgument)
 		return
 	}
-	result, err := a.Register.Execute(r.Context(), register.Requester{Email: in.Email, Password: in.Password, Name: in.FullName})
+	result, err := a.Register.Execute(r.Context(), request)
 	if err != nil {
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, 201, dtoUsers.FromDomain(result.User))
+	shared.WriteJSON(w, 201, dtoAuth.RegisterResponseDTO(mapper.UserResponse(result.User)))
 }
 func (a *Handlers) userRoute(w http.ResponseWriter, r *http.Request, p []string) {
 	if len(p) < 2 {

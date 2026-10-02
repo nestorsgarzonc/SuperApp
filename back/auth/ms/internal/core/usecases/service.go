@@ -22,6 +22,7 @@ type sessionUseCases interface {
 	RevokeSession(context.Context, string, string) error
 }
 type roleUseCases interface {
+	CreateRoleFromRequest(context.Context, roles.Requester) (roles.Presenter, error)
 	Roles(context.Context, *string) ([]domain.Role, error)
 	CreateRole(context.Context, domain.Role) (*domain.Role, error)
 	RoleByID(context.Context, string, *string) (*domain.Role, error)
@@ -29,6 +30,7 @@ type roleUseCases interface {
 	DeleteRole(context.Context, string, *string) error
 }
 type permissionUseCases interface {
+	CreatePermissionFromRequest(context.Context, permissions.Requester) (permissions.Presenter, error)
 	Permissions(context.Context) ([]domain.Permission, error)
 	CreatePermission(context.Context, domain.Permission) (*domain.Permission, error)
 	PermissionByID(context.Context, string) (*domain.Permission, error)

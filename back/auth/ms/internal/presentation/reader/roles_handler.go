@@ -3,7 +3,7 @@ package reader
 import (
 	"net/http"
 	"superapp/auth/internal/core/domain"
-	dtoRoles "superapp/auth/internal/presentation/dto/roles"
+	"superapp/auth/internal/presentation/mapper"
 	shared "superapp/auth/internal/presentation/shared"
 )
 
@@ -22,7 +22,7 @@ func (a *Handlers) listRoles(w http.ResponseWriter, r *http.Request) {
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, 200, dtoRoles.ListFromDomain(v))
+	shared.WriteJSON(w, 200, mapper.RoleResponses(v))
 }
 
 func (a *Handlers) roleRoute(w http.ResponseWriter, r *http.Request, p []string) {
@@ -48,5 +48,5 @@ func (a *Handlers) roleRoute(w http.ResponseWriter, r *http.Request, p []string)
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, http.StatusOK, dtoRoles.FromDomain(role))
+	shared.WriteJSON(w, http.StatusOK, mapper.RoleResponse(role))
 }

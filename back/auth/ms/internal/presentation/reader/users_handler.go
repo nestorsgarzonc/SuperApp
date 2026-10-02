@@ -4,8 +4,7 @@ import (
 	"net/http"
 
 	"superapp/auth/internal/core/domain"
-	dtoRoles "superapp/auth/internal/presentation/dto/roles"
-	dtoUsers "superapp/auth/internal/presentation/dto/users"
+	"superapp/auth/internal/presentation/mapper"
 	shared "superapp/auth/internal/presentation/shared"
 )
 
@@ -43,14 +42,14 @@ func (a *Handlers) userRoute(w http.ResponseWriter, r *http.Request, p []string)
 			a.Fail(w, err)
 			return
 		}
-		shared.WriteJSON(w, http.StatusOK, dtoUsers.FromDomain(user))
+		shared.WriteJSON(w, http.StatusOK, mapper.UserResponse(user))
 	case len(p) == 3 && p[2] == "roles":
 		roles, err := a.Authorization.EffectiveRoles(r.Context(), target, tenant)
 		if err != nil {
 			a.Fail(w, err)
 			return
 		}
-		shared.WriteJSON(w, http.StatusOK, dtoRoles.ListFromDomain(roles))
+		shared.WriteJSON(w, http.StatusOK, mapper.RoleResponses(roles))
 	case len(p) == 3 && p[2] == "permissions":
 		permissions, err := a.Authorization.EffectivePermissions(r.Context(), target, tenant)
 		if err != nil {

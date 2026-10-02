@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"superapp/auth/internal/core/domain"
 	dtoPermissions "superapp/auth/internal/presentation/dto/permissions"
+	"superapp/auth/internal/presentation/mapper"
+	"superapp/auth/internal/presentation/reader"
 	shared "superapp/auth/internal/presentation/shared"
 )
 
@@ -11,20 +13,16 @@ func (a *Handlers) createPermission(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.RequireSystemPermission(w, r, "auth.roles.manage"); !ok {
 		return
 	}
-	var in struct {
-		Code        string `json:"code"`
-		Description string `json:"description"`
-	}
-	if !shared.Decode(w, r, &in) {
+	request, ok := reader.CreatePermissionRequest(w, r)
+	if !ok {
 		return
 	}
-	v := domain.Permission{Code: in.Code, Description: in.Description}
-	created, err := a.Permissions.CreatePermission(r.Context(), v)
+	created, err := a.CreatePermission.CreatePermissionFromRequest(r.Context(), request)
 	if err != nil {
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, 201, dtoPermissions.FromDomain(created))
+	shared.WriteJSON(w, 201, mapper.CreatedPermissionResponse(created))
 }
 func (a *Handlers) permissionRoute(w http.ResponseWriter, r *http.Request, p []string) {
 	if _, ok := a.RequireSystemPermission(w, r, "auth.roles.manage"); !ok {
@@ -46,10 +44,7 @@ func (a *Handlers) permissionRoute(w http.ResponseWriter, r *http.Request, p []s
 			a.Fail(w, e)
 			return
 		}
-		var in struct {
-			Code        *string `json:"code"`
-			Description *string `json:"description"`
-		}
+		var in dtoPermissions.UpdateRequestDTO
 		if !shared.Decode(w, r, &in) {
 			return
 		}
@@ -67,7 +62,7 @@ func (a *Handlers) permissionRoute(w http.ResponseWriter, r *http.Request, p []s
 			a.Fail(w, e)
 			return
 		}
-		shared.WriteJSON(w, 200, dtoPermissions.FromDomain(current))
+		shared.WriteJSON(w, 200, mapper.PermissionResponse(current))
 	case "DELETE":
 		a.Respond(w, a.Permissions.DeletePermission(r.Context(), pid), 204, nil)
 	default:

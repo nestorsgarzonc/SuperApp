@@ -2,7 +2,7 @@ package reader
 
 import (
 	"net/http"
-	dtoSessions "superapp/auth/internal/presentation/dto/sessions"
+	"superapp/auth/internal/presentation/mapper"
 	shared "superapp/auth/internal/presentation/shared"
 )
 
@@ -18,5 +18,5 @@ func (a *SessionsHandler) listSessions(w http.ResponseWriter, r *http.Request) {
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, http.StatusOK, dtoSessions.ListFromDomain(v))
+	shared.WriteJSON(w, http.StatusOK, mapper.SessionResponses(v))
 }
