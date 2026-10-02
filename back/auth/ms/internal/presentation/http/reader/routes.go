@@ -20,10 +20,6 @@ func (r *Routes) Handle(w http.ResponseWriter, req *http.Request) bool {
 		path = strings.TrimRight(path, "/")
 	}
 	switch path {
-	case "/health":
-		r.h.health(w, req)
-	case "/ready":
-		r.h.ready(w, req)
 	case "/.well-known/jwks.json":
 		r.h.jwks(w, req)
 	case "/api/v1/sessions":

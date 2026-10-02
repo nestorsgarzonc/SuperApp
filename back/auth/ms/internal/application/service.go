@@ -10,7 +10,6 @@ import (
 	"superapp/auth/internal/application/sessions"
 	"superapp/auth/internal/application/users"
 	"superapp/auth/internal/domain"
-	repository "superapp/auth/internal/ports/repository"
 )
 
 type authUseCases interface {
@@ -61,7 +60,6 @@ type Service struct {
 	roleUseCases
 	permissionUseCases
 	authorizationUseCases
-	health repository.HealthRepository
 }
 
 func New(repo Repository, passwords PasswordHasher, tokens TokenIssuer, ids IDGenerator, cfg Config) *Service {
@@ -69,7 +67,6 @@ func New(repo Repository, passwords PasswordHasher, tokens TokenIssuer, ids IDGe
 		authUseCases: auth.New(repo, repo, passwords, tokens, ids, cfg),
 		userUseCases: users.New(repo), sessionUseCases: sessions.New(repo),
 		roleUseCases: roles.New(repo, ids), permissionUseCases: permissions.New(repo, ids),
-		authorizationUseCases: authorization.New(repo), health: repo,
+		authorizationUseCases: authorization.New(repo),
 	}
 }
-func (s *Service) Ready(ctx context.Context) error { return s.health.Ping(ctx) }

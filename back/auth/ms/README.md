@@ -9,7 +9,7 @@ Go 1.27.1 service using the standard HTTP server, `database/sql` with `pgx`, and
 - `internal/presentation/http/`: HTTP routing with reader/writer handlers and shared authorization helpers.
 - `internal/application/`: use-case orchestration and token/security/ID ports.
 - `internal/domain/`: user, session, role, permission models and domain errors, split by responsibility.
-- `internal/ports/repository/`: user, session, role, permission, authorization, and health repository contracts.
+- `internal/ports/repository/`: user, session, role, permission, and authorization repository contracts.
 - `internal/infrastructure/persistence/postgres/`: PostgreSQL adapters split by responsibility.
 - `internal/infrastructure/security/`: bcrypt and RS256/JWKS.
 - `Makefile`, `Dockerfile`, `.env.example`: local commands and service packaging.

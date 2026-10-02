@@ -12,11 +12,6 @@ services:
       - auth_db_data:/var/lib/postgresql/data
     secrets:
       - auth_db_password
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U auth_user -d auth_db"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
 volumes:
   auth_db_data:
 secrets:

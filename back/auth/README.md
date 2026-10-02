@@ -73,7 +73,6 @@ Prefijo: `/api/v1`. Las operaciones administrativas requieren permisos persistid
 | POST | `/auth/check-permission` | Evaluar permiso para identidad propia o usuario autorizado |
 | GET | `/sessions`, DELETE `/sessions/{id}` | Listar/revocar sesión propia |
 | GET | `/.well-known/jwks.json` | Clave pública vigente del emisor JWT |
-| GET | `/health` | Liveness |
 
 Para recursos tenant, el Gateway debe validar pertenencia del usuario al conjunto y firmar el contexto enviado a Auth con `X-Tenant-ID`, `X-Gateway-Timestamp` (Unix seconds) y `X-Gateway-Signature` (hex HMAC-SHA256 de `userId + LF + tenantId + LF + timestamp`). Auth verifica firma y ventana de ±60 s con `GATEWAY_TENANT_HMAC_SECRET`. El secreto debe compartirse solo entre Auth y Gateway. Sin contexto firmado, los recursos tenant se deniegan.
 

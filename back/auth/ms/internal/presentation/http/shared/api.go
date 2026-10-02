@@ -7,7 +7,6 @@ import (
 )
 
 type Service interface {
-	Ready(context.Context) error
 	Register(context.Context, string, string, string) (*domain.User, error)
 	Login(context.Context, string, string, string, string, string) (*domain.User, *application.TokenPair, error)
 	Refresh(context.Context, string) (*application.TokenPair, error)
