@@ -97,7 +97,7 @@ func (r *PostgresRepository) GetAccessGrant(ctx context.Context, id uuid.UUID) (
 	row := r.db.QueryRowContext(ctx, query, id)
 	if err := scanAccessGrant(row, &grant); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("access grant not found")
+			return nil, ErrAccessGrantNotFound
 		}
 		return nil, fmt.Errorf("failed to get access grant: %w", err)
 	}
@@ -200,7 +200,7 @@ func (r *PostgresRepository) CancelAccessGrant(ctx context.Context, id uuid.UUID
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("access grant not found or already cancelled")
+		return ErrAccessGrantNotFound
 	}
 
 	return nil

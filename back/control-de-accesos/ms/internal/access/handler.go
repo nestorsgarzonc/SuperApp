@@ -3,7 +3,6 @@ package access
 import (
 	stderrors "errors"
 	"net/http"
-	"strings"
 
 	"controldeaccesos/internal/platform/errors"
 	"controldeaccesos/internal/platform/middleware"
@@ -129,9 +128,7 @@ func (h *Handler) GetQRCodes(w http.ResponseWriter, r *http.Request) {
 
 	complexID, err := resolveComplexID(r)
 	if err != nil {
-		errors.RespondError(w, nil, errors.NewValidationError(map[string][]string{
-			"complex_id": {"Missing or invalid complex ID"},
-		}))
+		errors.RespondError(w, nil, errors.NewBadRequestError("complex_id: missing or not a valid UUID"))
 		return
 	}
 
@@ -187,9 +184,7 @@ func (h *Handler) GetPreAuthorizations(w http.ResponseWriter, r *http.Request) {
 
 	complexID, err := resolveComplexID(r)
 	if err != nil {
-		errors.RespondError(w, nil, errors.NewValidationError(map[string][]string{
-			"complex_id": {"Missing or invalid complex ID"},
-		}))
+		errors.RespondError(w, nil, errors.NewBadRequestError("complex_id: missing or not a valid UUID"))
 		return
 	}
 
@@ -253,9 +248,7 @@ func (h *Handler) GetAccessGrant(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		errors.RespondError(w, nil, errors.NewValidationError(map[string][]string{
-			"id": {"Invalid UUID format"},
-		}))
+		errors.RespondError(w, nil, errors.NewBadRequestError("id: not a valid UUID"))
 		return
 	}
 
@@ -267,11 +260,14 @@ func (h *Handler) GetAccessGrant(w http.ResponseWriter, r *http.Request) {
 
 	grant, err := h.service.GetAccessGrant(ctx, complexID, userID, id)
 	if err != nil {
-		if stderrors.Is(err, ErrUnitAccessDenied) {
+		switch {
+		case stderrors.Is(err, ErrUnitAccessDenied):
 			errors.RespondError(w, nil, errors.NewPermissionError(""))
-			return
+		case stderrors.Is(err, ErrAccessGrantNotFound):
+			errors.RespondError(w, nil, errors.NewNotFoundError("AccessGrant", idStr))
+		default:
+			errors.RespondError(w, nil, errors.NewInternalError(err))
 		}
-		errors.RespondError(w, nil, errors.NewNotFoundError("AccessGrant", idStr))
 		return
 	}
 
@@ -292,9 +288,7 @@ func (h *Handler) CancelAccessGrant(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		errors.RespondError(w, nil, errors.NewValidationError(map[string][]string{
-			"id": {"Invalid UUID format"},
-		}))
+		errors.RespondError(w, nil, errors.NewBadRequestError("id: not a valid UUID"))
 		return
 	}
 
@@ -308,7 +302,7 @@ func (h *Handler) CancelAccessGrant(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case stderrors.Is(err, ErrUnitAccessDenied):
 			errors.RespondError(w, nil, errors.NewPermissionError(""))
-		case stderrors.Is(err, ErrAccessGrantNotFound) || strings.Contains(err.Error(), "not found"):
+		case stderrors.Is(err, ErrAccessGrantNotFound):
 			errors.RespondError(w, nil, errors.NewNotFoundError("AccessGrant", idStr))
 		default:
 			errors.RespondError(w, nil, errors.NewInternalError(err))
@@ -356,9 +350,7 @@ func (h *Handler) GetUnitAccessGrants(w http.ResponseWriter, r *http.Request) {
 	unitIDStr := chi.URLParam(r, "unitId")
 	unitID, err := uuid.Parse(unitIDStr)
 	if err != nil {
-		errors.RespondError(w, nil, errors.NewValidationError(map[string][]string{
-			"unitId": {"Invalid UUID format"},
-		}))
+		errors.RespondError(w, nil, errors.NewBadRequestError("unitId: not a valid UUID"))
 		return
 	}
 
