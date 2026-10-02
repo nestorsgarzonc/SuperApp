@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:18.6-alpine
+    container_name: control_de_accesos_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: control_de_accesos
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      POSTGRES_DB: control_de_accesos
+      # postgres:18+ rejects a fresh volume mounted directly at
+      # /var/lib/postgresql/data (new pg_ctlcluster layout).
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"
+    volumes:
+      - control_de_accesos_db:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d
+      # Datos de demostración (solo dev): se ejecutan después de las migraciones (900_ > 00x_).
+      - ./db/seeds/001_demo.sql:/docker-entrypoint-initdb.d/900_demo_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U control_de_accesos -d control_de_accesos"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ms:
+    build:
+      context: ./ms
+      args:
+        GO_TAGS: dev   # incluye /dev/* y el simulador del sistema QR (nunca en producción)
+    container_name: control_de_accesos_ms
+    restart: unless-stopped
+    environment:
+      ENV: development
+      PORT: 8080
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: control_de_accesos
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      DB_NAME: control_de_accesos
+      DB_SSLMODE: disable
+      # Base URL for outbound event notifications. Empty = disabled.
+      NOTIFICATIONS_URL: ""
+      # Circuit breaker del sistema QR (ver docs/control-de-accesos.md)
+      QR_BREAKER_FAILURES: ${QR_BREAKER_FAILURES:-3}
+      QR_BREAKER_OPEN_SECONDS: ${QR_BREAKER_OPEN_SECONDS:-10}
+      QR_CALL_TIMEOUT_MS: ${QR_CALL_TIMEOUT_MS:-800}
+    ports:
+      - "8081:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  control_de_accesos_db:

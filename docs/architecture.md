@@ -78,6 +78,7 @@ SuperApp/
 └── docs/
     ├── architecture.md
     ├── api-gateway.md       # contrato del gateway (por implementar)
+    ├── control-de-accesos.md
     ├── events.md            # Redis Streams: convenciones y esquemas
     └── internal-apis.md     # endpoints /internal/* entre servicios
 ```
@@ -89,7 +90,7 @@ SuperApp/
 | `front` | Aplicación única; un módulo de UI por feature | `api-gateway` |
 | `back/api-gateway` | Punto de entrada único: enrutamiento, validación de token, rate limiting. Sin base de datos. | `auth` |
 | `back/auth` | Identidad, credenciales, emisión y validación de tokens | — |
-| `back/control-de-accesos` | Permisos, roles y registro de entradas/salidas | `auth` |
+| [`back/control-de-accesos`](control-de-accesos.md) | Permisos, roles y registro de entradas/salidas | `auth` |
 | `back/notificaciones` | Entrega de notificaciones: consume eventos de Redis, bandeja, push (FCM), preferencias y tokens de dispositivos. Ver `back/notificaciones/README.md` | Redis |
 
 ## Convenciones
