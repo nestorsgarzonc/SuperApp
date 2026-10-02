@@ -141,6 +141,26 @@ docker compose down        # detiene los contenedores
 docker compose down -v     # además borra los datos (vuelve a sembrar desde cero)
 ```
 
+## Pruebas
+
+```bash
+BASE_URL=http://localhost:8080 ./test/smoke_test.sh
+```
+
+Recorre los 10 endpoints (happy path + JSON malformado, campos faltantes,
+enums inválidos, recurso inexistente, UUID inválido, método no permitido,
+auth faltante) y compara el código HTTP esperado contra el real. Necesita
+una base recién migrada/sembrada (usa IDs del seed y cancela un grant).
+
+Para ver los eventos que dispara `internal/notifier` (sin montar el
+microservicio de notificaciones real):
+
+```bash
+python3 test/mock_notifications.py 9000
+# en otra terminal, con el server apuntando ahí:
+NOTIFICATIONS_URL=http://localhost:9000/events go run ./cmd/api
+```
+
 ## AWS RDS
 
 - `DB_HOST` / `DB_PORT` → endpoint de la instancia RDS.
