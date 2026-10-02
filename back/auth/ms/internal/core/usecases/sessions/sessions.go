@@ -3,6 +3,7 @@ package sessions
 import (
 	"context"
 	"superapp/auth/internal/core/domain"
+	"superapp/auth/internal/core/ports/repository"
 )
 
 func (s *Service) LogoutAll(ctx context.Context, userID string) error {
@@ -11,6 +12,8 @@ func (s *Service) LogoutAll(ctx context.Context, userID string) error {
 func (s *Service) Sessions(ctx context.Context, id string) ([]domain.Session, error) {
 	return s.repository.Sessions(ctx, id)
 }
-func (s *Service) RevokeSession(ctx context.Context, userID, sessionID string) error {
-	return s.repository.RevokeSession(ctx, userID, sessionID)
+func (s *Service) RevokeSession(ctx context.Context, params RevokeParams) error {
+	return s.repository.RevokeSession(ctx, repository.RevokeSessionParams{
+		UserID: params.UserID, SessionID: params.SessionID,
+	})
 }

@@ -34,7 +34,9 @@ func (u *UseCase) Execute(ctx context.Context, request Requester) (Presenter, er
 	if err != nil {
 		return Presenter{}, err
 	}
-	user, err := u.users.CreateUser(ctx, u.newID(), email, hash, strings.TrimSpace(request.Name))
+	user, err := u.users.CreateUser(ctx, repository.CreateUserParams{
+		ID: u.newID(), Email: email, PasswordHash: hash, FullName: strings.TrimSpace(request.Name),
+	})
 	if err != nil {
 		return Presenter{}, err
 	}

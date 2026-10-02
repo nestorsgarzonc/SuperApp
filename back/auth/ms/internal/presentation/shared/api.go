@@ -8,8 +8,11 @@ import (
 	"superapp/auth/internal/core/usecases/auth/logout"
 	"superapp/auth/internal/core/usecases/auth/refresh"
 	"superapp/auth/internal/core/usecases/auth/register"
+	appauthorization "superapp/auth/internal/core/usecases/authorization"
 	createpermission "superapp/auth/internal/core/usecases/permissions"
 	createrole "superapp/auth/internal/core/usecases/roles"
+	appsessions "superapp/auth/internal/core/usecases/sessions"
+	appusers "superapp/auth/internal/core/usecases/users"
 )
 
 type LoginUseCase interface {
@@ -37,13 +40,13 @@ type TokenReader interface {
 
 type UserService interface {
 	User(context.Context, string) (*domain.User, error)
-	UpdateUser(context.Context, string, *string, *string, *string) error
+	UpdateUser(context.Context, appusers.UpdateParams) error
 }
 
 type SessionService interface {
 	LogoutAll(context.Context, string) error
 	Sessions(context.Context, string) ([]domain.Session, error)
-	RevokeSession(context.Context, string, string) error
+	RevokeSession(context.Context, appsessions.RevokeParams) error
 }
 
 type RoleService interface {
@@ -63,13 +66,13 @@ type PermissionService interface {
 }
 
 type AuthorizationService interface {
-	HasPermission(context.Context, string, string, *string) (bool, error)
+	HasPermission(context.Context, appauthorization.HasPermissionParams) (bool, error)
 	EffectivePermissions(context.Context, string, *string) ([]string, error)
 	EffectiveRoles(context.Context, string, *string) ([]domain.Role, error)
-	GrantPermission(context.Context, string, string, *string) error
-	RevokePermission(context.Context, string, string, *string) error
-	AssignRole(context.Context, string, string, *string, string) error
-	RevokeRole(context.Context, string, string, *string) error
+	GrantPermission(context.Context, appauthorization.RolePermissionParams) error
+	RevokePermission(context.Context, appauthorization.RolePermissionParams) error
+	AssignRole(context.Context, appauthorization.AssignRoleParams) error
+	RevokeRole(context.Context, appauthorization.RevokeRoleParams) error
 }
 
 type Services struct {

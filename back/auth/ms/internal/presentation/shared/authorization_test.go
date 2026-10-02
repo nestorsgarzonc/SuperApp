@@ -69,14 +69,15 @@ func TestTenantMembershipAssertionBindsActorTargetAndTenant(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/users/"+target+"/roles", nil)
 	r.Header.Set("X-Gateway-Membership-Timestamp", ts)
 	r.Header.Set("X-Gateway-Membership-Signature", sign(actor, target, tenant))
-	if err := api.TenantMemberAssertion(r, actor, target, tenant); err != nil {
+	params := TenantMemberAssertionParams{ActorID: actor, TargetID: target, TenantID: tenant}
+	if err := api.TenantMemberAssertion(r, params); err != nil {
 		t.Fatalf("valid target membership assertion rejected: %v", err)
 	}
-	if err := api.TenantMemberAssertion(r, actor, actor, tenant); !errors.Is(err, domain.ErrForbidden) {
+	if err := api.TenantMemberAssertion(r, TenantMemberAssertionParams{ActorID: actor, TargetID: actor, TenantID: tenant}); !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("assertion for a different target accepted: %v", err)
 	}
 	r.Header.Set("X-Gateway-Membership-Signature", sign(actor, target, "00000000-0000-4000-8000-000000000010"))
-	if err := api.TenantMemberAssertion(r, actor, target, tenant); !errors.Is(err, domain.ErrForbidden) {
+	if err := api.TenantMemberAssertion(r, params); !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("assertion for a different tenant accepted: %v", err)
 	}
 }

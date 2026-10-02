@@ -13,9 +13,11 @@ import (
 	authlogout "superapp/auth/internal/core/usecases/auth/logout"
 	authrefresh "superapp/auth/internal/core/usecases/auth/refresh"
 	authregister "superapp/auth/internal/core/usecases/auth/register"
+	authorizationusecase "superapp/auth/internal/core/usecases/authorization"
 	"superapp/auth/internal/core/usecases/contracts"
 	permissionusecase "superapp/auth/internal/core/usecases/permissions"
 	roleusecase "superapp/auth/internal/core/usecases/roles"
+	users "superapp/auth/internal/core/usecases/users"
 )
 
 type testRepository struct {
@@ -83,10 +85,10 @@ func (s *testApplication) Logout(ctx context.Context, raw string) error {
 	return err
 }
 
-func (r *testRepository) CreateUser(_ context.Context, id, email, hash, name string) (*domain.User, error) {
-	r.createdEmail = email
-	r.createdHash = hash
-	return &domain.User{ID: id, Email: email, FullName: name, Status: "ACTIVE"}, nil
+func (r *testRepository) CreateUser(_ context.Context, params repository.CreateUserParams) (*domain.User, error) {
+	r.createdEmail = params.Email
+	r.createdHash = params.PasswordHash
+	return &domain.User{ID: params.ID, Email: params.Email, FullName: params.FullName, Status: "ACTIVE"}, nil
 }
 func (r *testRepository) UserByEmail(_ context.Context, email string) (*domain.User, string, error) {
 	if email == "missing@example.test" {
@@ -98,15 +100,15 @@ func (r *testRepository) SetLastLogin(context.Context, string) error {
 	r.loginUpdated = true
 	return nil
 }
-func (r *testRepository) CreateSession(_ context.Context, _, _, hash string, _ time.Time, _, _, _ string) error {
+func (r *testRepository) CreateSession(_ context.Context, params repository.CreateSessionParams) error {
 	r.sessionCreated = true
-	r.refreshHash = hash
+	r.refreshHash = params.RefreshHash
 	return nil
 }
-func (r *testRepository) RotateRefresh(_ context.Context, oldHash, newHash, newID string, expires, now time.Time) (string, string, string, error) {
-	r.refreshHash = oldHash
-	r.rotatedHash = newHash
-	return "session", "user", "user@example.test", nil
+func (r *testRepository) RotateRefresh(_ context.Context, params repository.RotateRefreshParams) (repository.RotateRefreshResult, error) {
+	r.refreshHash = params.OldHash
+	r.rotatedHash = params.NewHash
+	return repository.RotateRefreshResult{SessionID: "session", UserID: "user", Email: "user@example.test"}, nil
 }
 func (r *testRepository) CreateRole(context.Context, domain.Role) error { return nil }
 
@@ -265,17 +267,17 @@ type managementRepository struct {
 	effectivePermissions []string
 }
 
-func (r *managementRepository) CreateUser(_ context.Context, id, email, hash, name string) (*domain.User, error) {
-	r.user = &domain.User{ID: id, Email: email, FullName: name, Status: "ACTIVE"}
+func (r *managementRepository) CreateUser(_ context.Context, params repository.CreateUserParams) (*domain.User, error) {
+	r.user = &domain.User{ID: params.ID, Email: params.Email, FullName: params.FullName, Status: "ACTIVE"}
 	return r.user, nil
 }
 func (r *managementRepository) UserByID(context.Context, string) (*domain.User, error) {
 	return r.user, nil
 }
-func (r *managementRepository) UpdateUser(_ context.Context, id string, email, name, status *string) error {
-	r.updatedUserID = id
-	if status != nil {
-		r.statusUserID, r.status = id, *status
+func (r *managementRepository) UpdateUser(_ context.Context, params repository.UpdateUserParams) error {
+	r.updatedUserID = params.ID
+	if params.Status != nil {
+		r.statusUserID, r.status = params.ID, *params.Status
 	}
 	return nil
 }
@@ -303,21 +305,21 @@ func (r *managementRepository) DeletePermission(_ context.Context, id string) er
 	r.deletedPermissionID = id
 	return nil
 }
-func (r *managementRepository) GrantPermission(_ context.Context, role, permission string, _ *string) error {
-	r.grantedRole = role + ":" + permission
+func (r *managementRepository) GrantPermission(_ context.Context, params repository.RolePermissionParams) error {
+	r.grantedRole = params.RoleID + ":" + params.PermissionID
 	return nil
 }
-func (r *managementRepository) RevokePermission(_ context.Context, role, permission string, _ *string) error {
+func (r *managementRepository) RevokePermission(_ context.Context, params repository.RolePermissionParams) error {
 	r.grantedRole = ""
-	r.revokedRole = role + ":" + permission
+	r.revokedRole = params.RoleID + ":" + params.PermissionID
 	return nil
 }
-func (r *managementRepository) AssignRole(_ context.Context, user, role string, _ *string, _ string) error {
-	r.assignedUser, r.assignedRole = user, role
+func (r *managementRepository) AssignRole(_ context.Context, params repository.AssignRoleParams) error {
+	r.assignedUser, r.assignedRole = params.UserID, params.RoleID
 	return nil
 }
-func (r *managementRepository) RevokeRole(_ context.Context, user, role string, _ *string) error {
-	r.revokedUser, r.revokedAssignedRole = user, role
+func (r *managementRepository) RevokeRole(_ context.Context, params repository.RevokeRoleParams) error {
+	r.revokedUser, r.revokedAssignedRole = params.UserID, params.RoleID
 	return nil
 }
 func (r *managementRepository) EffectiveRoles(context.Context, string, *string) ([]domain.Role, error) {
@@ -326,7 +328,7 @@ func (r *managementRepository) EffectiveRoles(context.Context, string, *string) 
 func (r *managementRepository) EffectivePermissions(context.Context, string, *string) ([]string, error) {
 	return r.effectivePermissions, nil
 }
-func (r *managementRepository) PermissionAllowed(context.Context, string, string, *string) (bool, error) {
+func (r *managementRepository) PermissionAllowed(context.Context, repository.PermissionAllowedParams) (bool, error) {
 	return r.allowed, nil
 }
 
@@ -334,7 +336,7 @@ func TestUserUpdateStatusAndActivationValidation(t *testing.T) {
 	repo := &managementRepository{user: &domain.User{ID: "user-1"}}
 	s := newTestApplication(repo, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
 	email, name, status := " NEW@EXAMPLE.TEST ", " New Name ", "LOCKED"
-	if err := s.UpdateUser(context.Background(), "user-1", &email, &name, &status); err != nil {
+	if err := s.UpdateUser(context.Background(), users.UpdateParams{ID: "user-1", Email: &email, FullName: &name, Status: &status}); err != nil {
 		t.Fatal(err)
 	}
 	if repo.updatedUserID != "user-1" || repo.statusUserID != "user-1" || repo.status != status {
@@ -342,7 +344,7 @@ func TestUserUpdateStatusAndActivationValidation(t *testing.T) {
 	}
 	repo.updatedUserID = ""
 	invalidStatus := "SUPERUSER"
-	if err := s.UpdateUser(context.Background(), "user-1", nil, nil, &invalidStatus); !errors.Is(err, domain.ErrInvalidArgument) {
+	if err := s.UpdateUser(context.Background(), users.UpdateParams{ID: "user-1", Status: &invalidStatus}); !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("invalid status accepted: %v", err)
 	}
 	if repo.updatedUserID != "" {
@@ -384,16 +386,16 @@ func TestRolePermissionManagementAndAuthorizationDelegation(t *testing.T) {
 	if err := s.DeletePermission(context.Background(), "permission-1"); err != nil || repo.deletedPermissionID != "permission-1" {
 		t.Fatalf("permission delete not delegated: id=%s err=%v", repo.deletedPermissionID, err)
 	}
-	if err := s.GrantPermission(context.Background(), "role-1", "permission-1", &tenant); err != nil || repo.grantedRole != "role-1:permission-1" {
+	if err := s.GrantPermission(context.Background(), authorizationusecase.RolePermissionParams{RoleID: "role-1", PermissionID: "permission-1", TenantID: &tenant}); err != nil || repo.grantedRole != "role-1:permission-1" {
 		t.Fatalf("permission grant not delegated: %s, %v", repo.grantedRole, err)
 	}
-	if err := s.RevokePermission(context.Background(), "role-1", "permission-1", &tenant); err != nil || repo.revokedRole != "role-1:permission-1" {
+	if err := s.RevokePermission(context.Background(), authorizationusecase.RolePermissionParams{RoleID: "role-1", PermissionID: "permission-1", TenantID: &tenant}); err != nil || repo.revokedRole != "role-1:permission-1" {
 		t.Fatalf("permission revoke not delegated: %s, %v", repo.revokedRole, err)
 	}
-	if err := s.AssignRole(context.Background(), "user-1", "role-1", &tenant, "actor-1"); err != nil || repo.assignedUser != "user-1" || repo.assignedRole != "role-1" {
+	if err := s.AssignRole(context.Background(), authorizationusecase.AssignRoleParams{UserID: "user-1", RoleID: "role-1", TenantID: &tenant, ActorID: "actor-1"}); err != nil || repo.assignedUser != "user-1" || repo.assignedRole != "role-1" {
 		t.Fatalf("role assignment not delegated: %#v err=%v", repo, err)
 	}
-	if err := s.RevokeRole(context.Background(), "user-1", "role-1", &tenant); err != nil || repo.revokedUser != "user-1" || repo.revokedAssignedRole != "role-1" {
+	if err := s.RevokeRole(context.Background(), authorizationusecase.RevokeRoleParams{UserID: "user-1", RoleID: "role-1", TenantID: &tenant}); err != nil || repo.revokedUser != "user-1" || repo.revokedAssignedRole != "role-1" {
 		t.Fatalf("role removal not delegated: %#v err=%v", repo, err)
 	}
 	roles, err := s.EffectiveRoles(context.Background(), "user-1", &tenant)
@@ -404,7 +406,7 @@ func TestRolePermissionManagementAndAuthorizationDelegation(t *testing.T) {
 	if err != nil || len(permissions) != 2 {
 		t.Fatalf("permissions from multiple roles lost: %v %v", permissions, err)
 	}
-	allowed, err := s.HasPermission(context.Background(), "user-1", "homes.read", &tenant)
+	allowed, err := s.HasPermission(context.Background(), authorizationusecase.HasPermissionParams{UserID: "user-1", PermissionCode: "homes.read", TenantID: &tenant})
 	if err != nil || !allowed {
 		t.Fatalf("permission check failed: allowed=%v err=%v", allowed, err)
 	}

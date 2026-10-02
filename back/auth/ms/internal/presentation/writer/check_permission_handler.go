@@ -3,6 +3,7 @@ package writer
 import (
 	"net/http"
 	"superapp/auth/internal/core/domain"
+	appauthorization "superapp/auth/internal/core/usecases/authorization"
 	shared "superapp/auth/internal/presentation/shared"
 )
 
@@ -38,7 +39,9 @@ func (a *Handlers) checkPermission(w http.ResponseWriter, r *http.Request) {
 		a.Fail(w, err)
 		return
 	}
-	allowed, err := a.Authorization.HasPermission(r.Context(), in.UserID, in.Permission, tenant)
+	allowed, err := a.Authorization.HasPermission(r.Context(), appauthorization.HasPermissionParams{
+		UserID: in.UserID, PermissionCode: in.Permission, TenantID: tenant,
+	})
 	if err != nil {
 		a.Fail(w, err)
 		return

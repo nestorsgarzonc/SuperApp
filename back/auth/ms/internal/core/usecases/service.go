@@ -14,12 +14,12 @@ import (
 
 type userUseCases interface {
 	User(context.Context, string) (*domain.User, error)
-	UpdateUser(context.Context, string, *string, *string, *string) error
+	UpdateUser(context.Context, users.UpdateParams) error
 }
 type sessionUseCases interface {
 	LogoutAll(context.Context, string) error
 	Sessions(context.Context, string) ([]domain.Session, error)
-	RevokeSession(context.Context, string, string) error
+	RevokeSession(context.Context, sessions.RevokeParams) error
 }
 type roleUseCases interface {
 	CreateRoleFromRequest(context.Context, roles.Requester) (roles.Presenter, error)
@@ -38,13 +38,13 @@ type permissionUseCases interface {
 	DeletePermission(context.Context, string) error
 }
 type authorizationUseCases interface {
-	HasPermission(context.Context, string, string, *string) (bool, error)
+	HasPermission(context.Context, authorization.HasPermissionParams) (bool, error)
 	EffectivePermissions(context.Context, string, *string) ([]string, error)
 	EffectiveRoles(context.Context, string, *string) ([]domain.Role, error)
-	GrantPermission(context.Context, string, string, *string) error
-	RevokePermission(context.Context, string, string, *string) error
-	AssignRole(context.Context, string, string, *string, string) error
-	RevokeRole(context.Context, string, string, *string) error
+	GrantPermission(context.Context, authorization.RolePermissionParams) error
+	RevokePermission(context.Context, authorization.RolePermissionParams) error
+	AssignRole(context.Context, authorization.AssignRoleParams) error
+	RevokeRole(context.Context, authorization.RevokeRoleParams) error
 }
 type Service struct {
 	userUseCases

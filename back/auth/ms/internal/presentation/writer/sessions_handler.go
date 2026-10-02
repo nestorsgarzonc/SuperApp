@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"superapp/auth/internal/core/domain"
+	appsessions "superapp/auth/internal/core/usecases/sessions"
 	shared "superapp/auth/internal/presentation/shared"
 )
 
@@ -26,5 +27,7 @@ func (a *SessionsHandler) revokeSession(w http.ResponseWriter, r *http.Request) 
 		a.Fail(w, domain.ErrInvalidArgument)
 		return
 	}
-	a.Respond(w, a.Sessions.RevokeSession(r.Context(), id.UserID, id2), http.StatusNoContent, nil)
+	a.Respond(w, a.Sessions.RevokeSession(r.Context(), appsessions.RevokeParams{
+		UserID: id.UserID, SessionID: id2,
+	}), http.StatusNoContent, nil)
 }

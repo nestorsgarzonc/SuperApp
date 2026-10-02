@@ -3,6 +3,7 @@ package writer
 import (
 	"net/http"
 	"superapp/auth/internal/core/domain"
+	appauthorization "superapp/auth/internal/core/usecases/authorization"
 	dtoRoles "superapp/auth/internal/presentation/dto/roles"
 	"superapp/auth/internal/presentation/mapper"
 	"superapp/auth/internal/presentation/reader"
@@ -19,7 +20,9 @@ func (a *Handlers) roleRoute(w http.ResponseWriter, r *http.Request, p []string)
 		a.Fail(w, err)
 		return
 	}
-	allowed, err := a.Authorization.HasPermission(r.Context(), id.UserID, "auth.roles.manage", tenant)
+	allowed, err := a.Authorization.HasPermission(r.Context(), appauthorization.HasPermissionParams{
+		UserID: id.UserID, PermissionCode: "auth.roles.manage", TenantID: tenant,
+	})
 	if err != nil {
 		a.Fail(w, err)
 		return
@@ -82,7 +85,9 @@ func (a *Handlers) roleRoute(w http.ResponseWriter, r *http.Request, p []string)
 			a.Fail(w, domain.ErrInvalidArgument)
 			return
 		}
-		a.Respond(w, a.Authorization.GrantPermission(r.Context(), rid, in.PermissionID, tenant), 201, map[string]string{"status": "granted"})
+		a.Respond(w, a.Authorization.GrantPermission(r.Context(), appauthorization.RolePermissionParams{
+			RoleID: rid, PermissionID: in.PermissionID, TenantID: tenant,
+		}), 201, map[string]string{"status": "granted"})
 		return
 	}
 	if len(p) == 4 && p[2] == "permissions" && r.Method == "DELETE" {
@@ -90,7 +95,9 @@ func (a *Handlers) roleRoute(w http.ResponseWriter, r *http.Request, p []string)
 			a.Fail(w, domain.ErrInvalidArgument)
 			return
 		}
-		a.Respond(w, a.Authorization.RevokePermission(r.Context(), rid, p[3], tenant), 204, nil)
+		a.Respond(w, a.Authorization.RevokePermission(r.Context(), appauthorization.RolePermissionParams{
+			RoleID: rid, PermissionID: p[3], TenantID: tenant,
+		}), 204, nil)
 		return
 	}
 	shared.WriteError(w, 404, "not_found", "Route not found")

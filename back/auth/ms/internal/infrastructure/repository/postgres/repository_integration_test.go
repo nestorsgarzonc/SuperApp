@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"superapp/auth/internal/core/domain"
+	coreRepository "superapp/auth/internal/core/ports/repository"
 )
 
 // TestRepositoryPostgresIntegration is opt-in because it runs the real setup
@@ -59,10 +60,10 @@ func TestRepositoryPostgresIntegration(t *testing.T) {
 	}
 	t.Cleanup(cleanup)
 
-	if _, err = r.CreateUser(ctx, userID, userID+"@integration.test", "test-hash", "Integration user"); err != nil {
+	if _, err = r.CreateUser(ctx, coreRepository.CreateUserParams{ID: userID, Email: userID + "@integration.test", PasswordHash: "test-hash", FullName: "Integration user"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = r.CreateUser(ctx, actorID, actorID+"@integration.test", "test-hash", "Integration actor"); err != nil {
+	if _, err = r.CreateUser(ctx, coreRepository.CreateUserParams{ID: actorID, Email: actorID + "@integration.test", PasswordHash: "test-hash", FullName: "Integration actor"}); err != nil {
 		t.Fatal(err)
 	}
 	if err = r.CreateRole(ctx, domain.Role{ID: roleID, Code: roleCode, Name: "Integration role", Scope: "TENANT", TenantID: &tenantID, Enabled: true}); err != nil {
@@ -71,17 +72,17 @@ func TestRepositoryPostgresIntegration(t *testing.T) {
 	if err = r.CreatePermission(ctx, domain.Permission{ID: permissionID, Code: permissionCode, Description: "Integration permission"}); err != nil {
 		t.Fatal(err)
 	}
-	if err = r.GrantPermission(ctx, roleID, permissionID, &tenantID); err != nil {
+	if err = r.GrantPermission(ctx, coreRepository.RolePermissionParams{RoleID: roleID, PermissionID: permissionID, TenantID: &tenantID}); err != nil {
 		t.Fatal(err)
 	}
-	if err = r.AssignRole(ctx, userID, roleID, &tenantID, actorID); err != nil {
+	if err = r.AssignRole(ctx, coreRepository.AssignRoleParams{UserID: userID, RoleID: roleID, TenantID: &tenantID, ActorID: actorID}); err != nil {
 		t.Fatal(err)
 	}
-	allowed, err := r.PermissionAllowed(ctx, userID, permissionCode, &tenantID)
+	allowed, err := r.PermissionAllowed(ctx, coreRepository.PermissionAllowedParams{UserID: userID, PermissionCode: permissionCode, TenantID: &tenantID})
 	if err != nil || !allowed {
 		t.Fatalf("tenant permission not effective: allowed=%v err=%v", allowed, err)
 	}
-	allowed, err = r.PermissionAllowed(ctx, userID, permissionCode, nil)
+	allowed, err = r.PermissionAllowed(ctx, coreRepository.PermissionAllowedParams{UserID: userID, PermissionCode: permissionCode})
 	if err != nil || allowed {
 		t.Fatalf("tenant permission leaked into system scope: allowed=%v err=%v", allowed, err)
 	}
@@ -97,21 +98,30 @@ func TestRepositoryPostgresIntegration(t *testing.T) {
 	refreshHash := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	rotatedHash := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
 	expires := time.Now().Add(time.Hour)
-	if err = r.CreateSession(ctx, sessionID, userID, refreshHash, expires, "integration", "test-agent", "127.0.0.1"); err != nil {
+	if err = r.CreateSession(ctx, coreRepository.CreateSessionParams{
+		SessionID: sessionID, UserID: userID, RefreshHash: refreshHash, ExpiresAt: expires,
+		Device: "integration", UserAgent: "test-agent", IP: "127.0.0.1",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	rotatedID, _ := newUUID()
-	gotSession, gotUser, _, err := r.RotateRefresh(ctx, refreshHash, rotatedHash, rotatedID, expires, time.Now())
-	if err != nil || gotSession != sessionID || gotUser != userID {
-		t.Fatalf("refresh rotation failed: session=%s user=%s err=%v", gotSession, gotUser, err)
+	rotated, err := r.RotateRefresh(ctx, coreRepository.RotateRefreshParams{
+		OldHash: refreshHash, NewHash: rotatedHash, NewTokenID: rotatedID, ExpiresAt: expires, Now: time.Now(),
+	})
+	if err != nil || rotated.SessionID != sessionID || rotated.UserID != userID {
+		t.Fatalf("refresh rotation failed: session=%s user=%s err=%v", rotated.SessionID, rotated.UserID, err)
 	}
-	if _, _, _, err = r.RotateRefresh(ctx, refreshHash, "1111111111111111111111111111111111111111111111111111111111111111", refreshID, expires, time.Now()); !errors.Is(err, domain.ErrInvalidToken) {
+	if _, err = r.RotateRefresh(ctx, coreRepository.RotateRefreshParams{
+		OldHash: refreshHash, NewHash: "1111111111111111111111111111111111111111111111111111111111111111", NewTokenID: refreshID, ExpiresAt: expires, Now: time.Now(),
+	}); !errors.Is(err, domain.ErrInvalidToken) {
 		t.Fatalf("replayed refresh token accepted: %v", err)
 	}
 	if err = r.RevokeAllSessions(ctx, userID); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err = r.RotateRefresh(ctx, rotatedHash, "2222222222222222222222222222222222222222222222222222222222222222", refreshID, expires, time.Now()); !errors.Is(err, domain.ErrInvalidToken) {
+	if _, err = r.RotateRefresh(ctx, coreRepository.RotateRefreshParams{
+		OldHash: rotatedHash, NewHash: "2222222222222222222222222222222222222222222222222222222222222222", NewTokenID: refreshID, ExpiresAt: expires, Now: time.Now(),
+	}); !errors.Is(err, domain.ErrInvalidToken) {
 		t.Fatalf("refresh token after logout-all accepted: %v", err)
 	}
 }

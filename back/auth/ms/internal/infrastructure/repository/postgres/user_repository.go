@@ -6,11 +6,12 @@ import (
 	"errors"
 	"github.com/jackc/pgx/v5/pgconn"
 	"superapp/auth/internal/core/domain"
+	coreRepository "superapp/auth/internal/core/ports/repository"
 )
 
-func (r *Repository) CreateUser(ctx context.Context, id, email, hash, name string) (*domain.User, error) {
+func (r *Repository) CreateUser(ctx context.Context, params coreRepository.CreateUserParams) (*domain.User, error) {
 	u := &domain.User{}
-	err := r.db.QueryRowContext(ctx, `INSERT INTO auth_users(id,email,email_normalized,password_hash,full_name) VALUES($1,$2,$2,$3,$4) ON CONFLICT(email_normalized) DO NOTHING RETURNING id,email,full_name,status,created_at`, id, email, hash, name).Scan(&u.ID, &u.Email, &u.FullName, &u.Status, &u.CreatedAt)
+	err := r.db.QueryRowContext(ctx, `INSERT INTO auth_users(id,email,email_normalized,password_hash,full_name) VALUES($1,$2,$2,$3,$4) ON CONFLICT(email_normalized) DO NOTHING RETURNING id,email,full_name,status,created_at`, params.ID, params.Email, params.PasswordHash, params.FullName).Scan(&u.ID, &u.Email, &u.FullName, &u.Status, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, domain.ErrEmailTaken
 	}
@@ -36,13 +37,13 @@ func (r *Repository) UserByID(ctx context.Context, id string) (*domain.User, err
 	return u, err
 }
 
-func (r *Repository) UpdateUser(ctx context.Context, id string, email, name, status *string) error {
+func (r *Repository) UpdateUser(ctx context.Context, params coreRepository.UpdateUserParams) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, `UPDATE auth_users SET email=COALESCE($2,email),email_normalized=COALESCE($2,email_normalized),full_name=COALESCE($3,full_name),status=COALESCE($4,status),updated_at=now() WHERE id=$1`, id, email, name, status)
+	res, err := tx.ExecContext(ctx, `UPDATE auth_users SET email=COALESCE($2,email),email_normalized=COALESCE($2,email_normalized),full_name=COALESCE($3,full_name),status=COALESCE($4,status),updated_at=now() WHERE id=$1`, params.ID, params.Email, params.FullName, params.Status)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -54,11 +55,11 @@ func (r *Repository) UpdateUser(ctx context.Context, id string, email, name, sta
 	if n == 0 {
 		return domain.ErrNotFound
 	}
-	if status != nil && *status != "ACTIVE" {
-		if _, err = tx.ExecContext(ctx, `UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1`, id); err != nil {
+	if params.Status != nil && *params.Status != "ACTIVE" {
+		if _, err = tx.ExecContext(ctx, `UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1`, params.ID); err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, `UPDATE auth_refresh_tokens t SET revoked_at=COALESCE(t.revoked_at,now()) FROM auth_sessions s WHERE t.session_id=s.id AND s.user_id=$1`, id); err != nil {
+		if _, err = tx.ExecContext(ctx, `UPDATE auth_refresh_tokens t SET revoked_at=COALESCE(t.revoked_at,now()) FROM auth_sessions s WHERE t.session_id=s.id AND s.user_id=$1`, params.ID); err != nil {
 			return err
 		}
 	}

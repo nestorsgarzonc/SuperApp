@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 	"superapp/auth/internal/core/domain"
+	appauthorization "superapp/auth/internal/core/usecases/authorization"
+	appusers "superapp/auth/internal/core/usecases/users"
 	dtoAuth "superapp/auth/internal/presentation/dto/auth"
 	"superapp/auth/internal/presentation/mapper"
 	"superapp/auth/internal/presentation/reader"
@@ -68,7 +70,9 @@ func (a *Handlers) userRoute(w http.ResponseWriter, r *http.Request, p []string)
 		if !shared.Decode(w, r, &in) {
 			return
 		}
-		if err := a.Users.UpdateUser(r.Context(), target, in.Email, in.FullName, in.Status); err != nil {
+		if err := a.Users.UpdateUser(r.Context(), appusers.UpdateParams{
+			ID: target, Email: in.Email, FullName: in.FullName, Status: in.Status,
+		}); err != nil {
 			a.Fail(w, err)
 			return
 		}
@@ -90,12 +94,16 @@ func (a *Handlers) userRoute(w http.ResponseWriter, r *http.Request, p []string)
 			return
 		}
 		if tenant != nil {
-			if err := a.TenantMemberAssertion(r, id.UserID, target, *tenant); err != nil {
+			if err := a.TenantMemberAssertion(r, shared.TenantMemberAssertionParams{
+				ActorID: id.UserID, TargetID: target, TenantID: *tenant,
+			}); err != nil {
 				a.Fail(w, err)
 				return
 			}
 		}
-		a.Respond(w, a.Authorization.AssignRole(r.Context(), target, in.RoleID, tenant, id.UserID), 201, map[string]string{"status": "assigned"})
+		a.Respond(w, a.Authorization.AssignRole(r.Context(), appauthorization.AssignRoleParams{
+			UserID: target, RoleID: in.RoleID, TenantID: tenant, ActorID: id.UserID,
+		}), 201, map[string]string{"status": "assigned"})
 		return
 	}
 	if len(p) == 4 && p[2] == "roles" && r.Method == "DELETE" {
@@ -106,7 +114,9 @@ func (a *Handlers) userRoute(w http.ResponseWriter, r *http.Request, p []string)
 			a.Fail(w, domain.ErrInvalidArgument)
 			return
 		}
-		a.Respond(w, a.Authorization.RevokeRole(r.Context(), target, p[3], tenant), 204, nil)
+		a.Respond(w, a.Authorization.RevokeRole(r.Context(), appauthorization.RevokeRoleParams{
+			UserID: target, RoleID: p[3], TenantID: tenant,
+		}), 204, nil)
 		return
 	}
 	shared.WriteError(w, 404, "not_found", "Route not found")

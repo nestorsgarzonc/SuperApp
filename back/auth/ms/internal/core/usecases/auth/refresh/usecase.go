@@ -29,11 +29,14 @@ func (u *UseCase) Execute(ctx context.Context, request Requester) (Presenter, er
 		return Presenter{}, err
 	}
 	now := u.now()
-	sessionID, userID, email, err := u.sessions.RotateRefresh(ctx, oldHash, newHash, u.newID(), now.Add(u.cfg.RefreshTTL), now)
+	rotated, err := u.sessions.RotateRefresh(ctx, repository.RotateRefreshParams{
+		OldHash: oldHash, NewHash: newHash, NewTokenID: u.newID(),
+		ExpiresAt: now.Add(u.cfg.RefreshTTL), Now: now,
+	})
 	if err != nil {
 		return Presenter{}, err
 	}
-	access, expiry, err := u.tokens.Issue(userID, email, sessionID)
+	access, expiry, err := u.tokens.Issue(rotated.UserID, rotated.Email, rotated.SessionID)
 	if err != nil {
 		return Presenter{}, err
 	}

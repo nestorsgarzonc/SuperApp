@@ -6,11 +6,36 @@ import (
 )
 
 type AuthorizationRepository interface {
-	GrantPermission(context.Context, string, string, *string) error
-	RevokePermission(context.Context, string, string, *string) error
-	AssignRole(context.Context, string, string, *string, string) error
-	RevokeRole(context.Context, string, string, *string) error
+	GrantPermission(context.Context, RolePermissionParams) error
+	RevokePermission(context.Context, RolePermissionParams) error
+	AssignRole(context.Context, AssignRoleParams) error
+	RevokeRole(context.Context, RevokeRoleParams) error
 	EffectiveRoles(context.Context, string, *string) ([]domain.Role, error)
 	EffectivePermissions(context.Context, string, *string) ([]string, error)
-	PermissionAllowed(context.Context, string, string, *string) (bool, error)
+	PermissionAllowed(context.Context, PermissionAllowedParams) (bool, error)
+}
+
+type RolePermissionParams struct {
+	RoleID       string
+	PermissionID string
+	TenantID     *string
+}
+
+type AssignRoleParams struct {
+	UserID   string
+	RoleID   string
+	TenantID *string
+	ActorID  string
+}
+
+type RevokeRoleParams struct {
+	UserID   string
+	RoleID   string
+	TenantID *string
+}
+
+type PermissionAllowedParams struct {
+	UserID         string
+	PermissionCode string
+	TenantID       *string
 }

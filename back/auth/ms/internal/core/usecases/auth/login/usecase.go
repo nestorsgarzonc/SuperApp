@@ -50,7 +50,11 @@ func (u *UseCase) Execute(ctx context.Context, request Requester) (Presenter, er
 	if err != nil {
 		return Presenter{}, err
 	}
-	if err = u.sessions.CreateSession(ctx, sessionID, user.ID, refreshHash, now.Add(u.cfg.RefreshTTL), request.Device, request.UserAgent, request.IP); err != nil {
+	if err = u.sessions.CreateSession(ctx, repository.CreateSessionParams{
+		SessionID: sessionID, UserID: user.ID, RefreshHash: refreshHash,
+		ExpiresAt: now.Add(u.cfg.RefreshTTL), Device: request.Device,
+		UserAgent: request.UserAgent, IP: request.IP,
+	}); err != nil {
 		return Presenter{}, err
 	}
 	return Presenter{User: user, Tokens: contracts.TokenPair{

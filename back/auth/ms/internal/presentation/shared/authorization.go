@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"superapp/auth/internal/core/domain"
+	appauthorization "superapp/auth/internal/core/usecases/authorization"
 )
 
 func (a *API) Auth(w http.ResponseWriter, r *http.Request) (Identity, bool) {
@@ -36,7 +37,9 @@ func (a *API) RequirePermission(w http.ResponseWriter, r *http.Request, permissi
 		a.Fail(w, err)
 		return Identity{}, false
 	}
-	allowed, err := a.Authorization.HasPermission(r.Context(), id.UserID, permission, tenant)
+	allowed, err := a.Authorization.HasPermission(r.Context(), appauthorization.HasPermissionParams{
+		UserID: id.UserID, PermissionCode: permission, TenantID: tenant,
+	})
 	if err != nil {
 		a.Fail(w, err)
 		return Identity{}, false
@@ -53,7 +56,9 @@ func (a *API) RequireSystemPermission(w http.ResponseWriter, r *http.Request, pe
 	if !ok {
 		return Identity{}, false
 	}
-	allowed, err := a.Authorization.HasPermission(r.Context(), id.UserID, permission, nil)
+	allowed, err := a.Authorization.HasPermission(r.Context(), appauthorization.HasPermissionParams{
+		UserID: id.UserID, PermissionCode: permission,
+	})
 	if err != nil {
 		a.Fail(w, err)
 		return Identity{}, false
@@ -94,14 +99,20 @@ func (a *API) Tenant(r *http.Request, userID string) (*string, error) {
 // tenantMemberAssertion validates a Gateway assertion that the target user, not
 // merely the caller, belongs to the requested tenant.
 
-func (a *API) TenantMemberAssertion(r *http.Request, actorID, targetID, tenantID string) error {
+type TenantMemberAssertionParams struct {
+	ActorID  string
+	TargetID string
+	TenantID string
+}
+
+func (a *API) TenantMemberAssertion(r *http.Request, params TenantMemberAssertionParams) error {
 	timestamp := r.Header.Get("X-Gateway-Membership-Timestamp")
 	unix, err := strconv.ParseInt(timestamp, 10, 64)
 	if err != nil || time.Since(time.Unix(unix, 0)) > time.Minute || time.Until(time.Unix(unix, 0)) > time.Minute {
 		return domain.ErrForbidden
 	}
 	mac := hmac.New(sha256.New, a.TenantSecret)
-	_, _ = mac.Write([]byte(actorID + "\n" + targetID + "\n" + tenantID + "\n" + timestamp))
+	_, _ = mac.Write([]byte(params.ActorID + "\n" + params.TargetID + "\n" + params.TenantID + "\n" + timestamp))
 	expected := hex.EncodeToString(mac.Sum(nil))
 	provided := strings.ToLower(r.Header.Get("X-Gateway-Membership-Signature"))
 	if len(a.TenantSecret) < 32 || !hmac.Equal([]byte(provided), []byte(expected)) {
