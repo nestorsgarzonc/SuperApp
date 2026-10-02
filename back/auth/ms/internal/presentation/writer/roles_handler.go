@@ -132,9 +132,10 @@ func (a *Handlers) createRole(w http.ResponseWriter, r *http.Request) {
 	} else {
 		v.TenantID = nil
 	}
-	if err := a.Roles.CreateRole(r.Context(), v); err != nil {
+	created, err := a.Roles.CreateRole(r.Context(), v)
+	if err != nil {
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, 201, dtoRoles.FromDomain(&v))
+	shared.WriteJSON(w, 201, dtoRoles.FromDomain(created))
 }

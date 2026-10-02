@@ -24,7 +24,9 @@ func (s *Service) Refresh(ctx context.Context, raw string) (*contracts.TokenPair
 	if err != nil {
 		return nil, err
 	}
-	return &contracts.TokenPair{access, newRaw, int64(expiry.Sub(now).Seconds())}, nil
+	return &contracts.TokenPair{
+		AccessToken: access, RefreshToken: newRaw, ExpiresIn: int64(expiry.Sub(now).Seconds()),
+	}, nil
 }
 func newRefresh() (raw, hash string, err error) {
 	b := make([]byte, 32)

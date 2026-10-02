@@ -7,21 +7,24 @@ import (
 	"superapp/auth/internal/core/domain"
 )
 
-func (s *Service) CreateRole(ctx context.Context, r domain.Role) error {
+func (s *Service) CreateRole(ctx context.Context, r domain.Role) (*domain.Role, error) {
 	if r.Scope != "SYSTEM" && r.Scope != "TENANT" {
-		return fmt.Errorf("%w: scope must be SYSTEM or TENANT", domain.ErrInvalidArgument)
+		return nil, fmt.Errorf("%w: scope must be SYSTEM or TENANT", domain.ErrInvalidArgument)
 	}
 	if (r.Scope == "TENANT") != (r.TenantID != nil) {
-		return fmt.Errorf("%w: system roles have no tenant; tenant roles require one", domain.ErrInvalidArgument)
+		return nil, fmt.Errorf("%w: system roles have no tenant; tenant roles require one", domain.ErrInvalidArgument)
 	}
 	if !domain.ValidRoleCode(r.Code) || strings.TrimSpace(r.Name) == "" || len(r.Name) > 100 || len(r.Description) > 500 {
-		return fmt.Errorf("%w: role code, name, or description is invalid", domain.ErrInvalidArgument)
+		return nil, fmt.Errorf("%w: role code, name, or description is invalid", domain.ErrInvalidArgument)
 	}
 	r.Enabled = true
 	if r.ID == "" {
 		r.ID = s.newID()
 	}
-	return s.repository.CreateRole(ctx, r)
+	if err := s.repository.CreateRole(ctx, r); err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
 func (s *Service) Roles(ctx context.Context, tenant *string) ([]domain.Role, error) {
 	return s.repository.Roles(ctx, tenant)

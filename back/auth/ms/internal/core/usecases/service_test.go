@@ -151,7 +151,7 @@ func TestRefreshRotatesAndOnlyPersistsHash(t *testing.T) {
 
 func TestTenantRoleRequiresTenantScope(t *testing.T) {
 	s := newTestApplication(&testRepository{}, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
-	err := s.CreateRole(context.Background(), domain.Role{Code: "TENANT_MANAGER", Name: "Manager", Scope: "TENANT"})
+	_, err := s.CreateRole(context.Background(), domain.Role{Code: "TENANT_MANAGER", Name: "Manager", Scope: "TENANT"})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("expected tenant scope validation, got %v", err)
 	}
@@ -159,7 +159,7 @@ func TestTenantRoleRequiresTenantScope(t *testing.T) {
 
 func TestPermissionCodeMustBeNamespaced(t *testing.T) {
 	s := newTestApplication(&testRepository{}, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
-	err := s.CreatePermission(context.Background(), domain.Permission{Code: "ADMIN"})
+	_, err := s.CreatePermission(context.Background(), domain.Permission{Code: "ADMIN"})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("expected namespaced permission validation, got %v", err)
 	}
@@ -318,11 +318,12 @@ func TestRolePermissionManagementAndAuthorizationDelegation(t *testing.T) {
 		allowed:              true,
 	}
 	s := newTestApplication(repo, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
-	if err := s.CreateRole(context.Background(), domain.Role{Code: "TENANT_ADMIN", Name: "Tenant Admin", Scope: "TENANT", TenantID: &tenant}); err != nil {
+	createdRole, err := s.CreateRole(context.Background(), domain.Role{Code: "TENANT_ADMIN", Name: "Tenant Admin", Scope: "TENANT", TenantID: &tenant})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if repo.role.ID == "" || repo.role.TenantID == nil || *repo.role.TenantID != tenant {
-		t.Fatalf("role scope/id not set: %#v", repo.role)
+	if createdRole.ID == "" || !createdRole.Enabled || repo.role.ID != createdRole.ID || repo.role.TenantID == nil || *repo.role.TenantID != tenant {
+		t.Fatalf("created role did not return generated values: result=%#v persisted=%#v", createdRole, repo.role)
 	}
 	if err := s.UpdateRole(context.Background(), domain.Role{ID: "role-1", Name: "Resident Updated"}, &tenant); err != nil {
 		t.Fatal(err)
@@ -330,11 +331,12 @@ func TestRolePermissionManagementAndAuthorizationDelegation(t *testing.T) {
 	if err := s.DeleteRole(context.Background(), "role-1", &tenant); err != nil || repo.deletedRoleID != "role-1" {
 		t.Fatalf("role delete not delegated: id=%s err=%v", repo.deletedRoleID, err)
 	}
-	if err := s.CreatePermission(context.Background(), domain.Permission{Code: "homes.read", Description: "Read homes"}); err != nil {
+	createdPermission, err := s.CreatePermission(context.Background(), domain.Permission{Code: "homes.read", Description: "Read homes"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if repo.permission.ID == "" {
-		t.Fatal("permission id was not generated")
+	if createdPermission.ID == "" || repo.permission.ID != createdPermission.ID {
+		t.Fatalf("created permission did not return generated ID: result=%#v persisted=%#v", createdPermission, repo.permission)
 	}
 	if err := s.UpdatePermission(context.Background(), domain.Permission{ID: "permission-1", Code: "homes.write"}); err != nil || repo.updatedPermissionID != "permission-1" {
 		t.Fatalf("permission update not delegated: id=%s err=%v", repo.updatedPermissionID, err)

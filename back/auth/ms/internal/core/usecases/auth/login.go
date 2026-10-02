@@ -42,5 +42,7 @@ func (s *Service) newSession(ctx context.Context, u *domain.User, device, ua, ip
 	if err = s.sessions.CreateSession(ctx, sessionID, u.ID, hash, refreshExpiry, device, ua, ip); err != nil {
 		return nil, err
 	}
-	return &contracts.TokenPair{access, raw, int64(accessExpiry.Sub(now).Seconds())}, nil
+	return &contracts.TokenPair{
+		AccessToken: access, RefreshToken: raw, ExpiresIn: int64(accessExpiry.Sub(now).Seconds()),
+	}, nil
 }

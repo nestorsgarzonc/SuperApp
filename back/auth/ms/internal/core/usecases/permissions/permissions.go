@@ -6,14 +6,17 @@ import (
 	"superapp/auth/internal/core/domain"
 )
 
-func (s *Service) CreatePermission(ctx context.Context, p domain.Permission) error {
+func (s *Service) CreatePermission(ctx context.Context, p domain.Permission) (*domain.Permission, error) {
 	if !domain.ValidPermissionCode(p.Code) || len(p.Description) > 500 {
-		return fmt.Errorf("%w: permission code or description is invalid", domain.ErrInvalidArgument)
+		return nil, fmt.Errorf("%w: permission code or description is invalid", domain.ErrInvalidArgument)
 	}
 	if p.ID == "" {
 		p.ID = s.newID()
 	}
-	return s.repository.CreatePermission(ctx, p)
+	if err := s.repository.CreatePermission(ctx, p); err != nil {
+		return nil, err
+	}
+	return &p, nil
 }
 func (s *Service) Permissions(ctx context.Context) ([]domain.Permission, error) {
 	return s.repository.Permissions(ctx)

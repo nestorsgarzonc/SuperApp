@@ -19,11 +19,12 @@ func (a *Handlers) createPermission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := domain.Permission{Code: in.Code, Description: in.Description}
-	if err := a.Permissions.CreatePermission(r.Context(), v); err != nil {
+	created, err := a.Permissions.CreatePermission(r.Context(), v)
+	if err != nil {
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, 201, dtoPermissions.FromDomain(&v))
+	shared.WriteJSON(w, 201, dtoPermissions.FromDomain(created))
 }
 func (a *Handlers) permissionRoute(w http.ResponseWriter, r *http.Request, p []string) {
 	if _, ok := a.RequireSystemPermission(w, r, "auth.roles.manage"); !ok {

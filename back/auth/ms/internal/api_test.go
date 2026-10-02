@@ -10,7 +10,7 @@ import (
 	"superapp/auth/internal/core/domain"
 	"superapp/auth/internal/core/ports/security"
 	"superapp/auth/internal/core/usecases/contracts"
-	"superapp/auth/internal/presentation/shared"
+	shared "superapp/auth/internal/presentation/shared"
 )
 
 type loginFailureService struct{}
