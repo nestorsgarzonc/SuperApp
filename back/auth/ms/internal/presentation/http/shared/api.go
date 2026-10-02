@@ -2,17 +2,17 @@ package httpapi
 
 import (
 	"context"
-	"superapp/auth/internal/application"
+	"superapp/auth/internal/application/contracts"
 	"superapp/auth/internal/domain"
 )
 
 type Service interface {
 	Register(context.Context, string, string, string) (*domain.User, error)
-	Login(context.Context, string, string, string, string, string) (*domain.User, *application.TokenPair, error)
-	Refresh(context.Context, string) (*application.TokenPair, error)
+	Login(context.Context, string, string, string, string, string) (*domain.User, *contracts.TokenPair, error)
+	Refresh(context.Context, string) (*contracts.TokenPair, error)
 	Logout(context.Context, string) error
 	LogoutAll(context.Context, string) error
-	Authenticate(string) (*application.TokenClaims, error)
+	Authenticate(string) (*contracts.TokenClaims, error)
 	User(context.Context, string) (*domain.User, error)
 	UpdateUser(context.Context, string, string, string) error
 	Sessions(context.Context, string) ([]domain.Session, error)

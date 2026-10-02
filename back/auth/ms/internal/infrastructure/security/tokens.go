@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"superapp/auth/internal/application"
+	"superapp/auth/internal/application/contracts"
 )
 
 type claims struct {
@@ -66,7 +66,7 @@ func (t *Tokens) Issue(userID, email, sessionID string) (string, time.Time, erro
 	raw, err := token.SignedString(t.private)
 	return raw, expires, err
 }
-func (t *Tokens) Verify(raw string) (*application.TokenClaims, error) {
+func (t *Tokens) Verify(raw string) (*contracts.TokenClaims, error) {
 	c := &claims{}
 	token, err := jwt.ParseWithClaims(raw, c, func(token *jwt.Token) (any, error) {
 		if token.Method != jwt.SigningMethodRS256 {
@@ -80,7 +80,7 @@ func (t *Tokens) Verify(raw string) (*application.TokenClaims, error) {
 	if err != nil || token == nil || !token.Valid || c.Subject == "" || c.SessionID == "" {
 		return nil, errors.New("invalid or expired access token")
 	}
-	return &application.TokenClaims{Subject: c.Subject, Email: "", SessionID: c.SessionID, ExpiresAt: c.ExpiresAt.Time}, nil
+	return &contracts.TokenClaims{Subject: c.Subject, Email: "", SessionID: c.SessionID, ExpiresAt: c.ExpiresAt.Time}, nil
 }
 
 type jwk struct {

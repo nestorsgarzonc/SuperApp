@@ -6,11 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"superapp/auth/internal/application/contracts"
 	"superapp/auth/internal/domain"
+	"superapp/auth/internal/ports/repository"
 )
 
 type testRepository struct {
-	Repository
+	repository.Repository
 	user           *domain.User
 	hash           string
 	createdEmail   string
@@ -68,14 +70,14 @@ type testTokens struct{}
 func (testTokens) Issue(string, string, string) (string, time.Time, error) {
 	return "signed-access-token", time.Now().Add(time.Minute), nil
 }
-func (testTokens) Verify(string) (*TokenClaims, error) { return nil, nil }
-func (testTokens) JWKS() map[string]any                { return nil }
+func (testTokens) Verify(string) (*contracts.TokenClaims, error) { return nil, nil }
+func (testTokens) JWKS() map[string]any                          { return nil }
 
-func testIDs() IDGenerator { return func() string { return "generated-id" } }
+func testIDs() contracts.IDGenerator { return func() string { return "generated-id" } }
 
 func TestRegisterNormalizesEmailAndStoresHash(t *testing.T) {
 	repo := &testRepository{}
-	s := New(repo, &testPasswords{}, testTokens{}, testIDs(), Config{})
+	s := New(repo, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
 	u, err := s.Register(context.Background(), "  User@Example.Test ", "a-strong-password", "User")
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +87,7 @@ func TestRegisterNormalizesEmailAndStoresHash(t *testing.T) {
 	}
 }
 func TestRegisterRejectsWeakPassword(t *testing.T) {
-	s := New(&testRepository{}, &testPasswords{}, testTokens{}, testIDs(), Config{})
+	s := New(&testRepository{}, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
 	if _, err := s.Register(context.Background(), "x@y.test", "short", "User"); !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("expected invalid argument, got %v", err)
 	}
@@ -93,7 +95,7 @@ func TestRegisterRejectsWeakPassword(t *testing.T) {
 func TestLoginGenericCredentialsAndCreatesSession(t *testing.T) {
 	pw := &testPasswords{}
 	repo := &testRepository{user: &domain.User{ID: "u1", Email: "user@example.test", Status: "ACTIVE"}, hash: "hash"}
-	s := New(repo, pw, testTokens{}, testIDs(), Config{AccessTTL: time.Minute, RefreshTTL: time.Hour})
+	s := New(repo, pw, testTokens{}, testIDs(), contracts.Config{AccessTTL: time.Minute, RefreshTTL: time.Hour})
 	if _, _, err := s.Login(context.Background(), "missing@example.test", "wrong", "", "", ""); !errors.Is(err, domain.ErrInvalidCredentials) {
 		t.Fatalf("missing account error: %v", err)
 	}
@@ -110,7 +112,7 @@ func TestLoginGenericCredentialsAndCreatesSession(t *testing.T) {
 }
 func TestInactiveAccountUsesGenericCredentialFailure(t *testing.T) {
 	repo := &testRepository{user: &domain.User{ID: "u1", Email: "inactive@example.test", Status: "DISABLED"}, hash: "hash"}
-	s := New(repo, &testPasswords{}, testTokens{}, testIDs(), Config{})
+	s := New(repo, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
 	if _, _, err := s.Login(context.Background(), "inactive@example.test", "correct-password", "", "", ""); !errors.Is(err, domain.ErrInvalidCredentials) {
 		t.Fatalf("expected generic credential error, got %v", err)
 	}
@@ -118,7 +120,7 @@ func TestInactiveAccountUsesGenericCredentialFailure(t *testing.T) {
 
 func TestRefreshRotatesAndOnlyPersistsHash(t *testing.T) {
 	repo := &testRepository{}
-	s := New(repo, &testPasswords{}, testTokens{}, testIDs(), Config{RefreshTTL: time.Hour})
+	s := New(repo, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{RefreshTTL: time.Hour})
 	pair, err := s.Refresh(context.Background(), "presented-refresh-token")
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +131,7 @@ func TestRefreshRotatesAndOnlyPersistsHash(t *testing.T) {
 }
 
 func TestTenantRoleRequiresTenantScope(t *testing.T) {
-	s := New(&testRepository{}, &testPasswords{}, testTokens{}, testIDs(), Config{})
+	s := New(&testRepository{}, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
 	err := s.CreateRole(context.Background(), domain.Role{Code: "TENANT_MANAGER", Name: "Manager", Scope: "TENANT"})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("expected tenant scope validation, got %v", err)
@@ -137,7 +139,7 @@ func TestTenantRoleRequiresTenantScope(t *testing.T) {
 }
 
 func TestPermissionCodeMustBeNamespaced(t *testing.T) {
-	s := New(&testRepository{}, &testPasswords{}, testTokens{}, testIDs(), Config{})
+	s := New(&testRepository{}, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
 	err := s.CreatePermission(context.Background(), domain.Permission{Code: "ADMIN"})
 	if !errors.Is(err, domain.ErrInvalidArgument) {
 		t.Fatalf("expected namespaced permission validation, got %v", err)
@@ -145,7 +147,7 @@ func TestPermissionCodeMustBeNamespaced(t *testing.T) {
 }
 
 type revocationRepository struct {
-	Repository
+	repository.Repository
 	refreshHash, userID string
 	allCalled           bool
 }
@@ -162,7 +164,7 @@ func (r *revocationRepository) RevokeAllSessions(_ context.Context, userID strin
 
 func TestLogoutRevokesRefreshTokenByHash(t *testing.T) {
 	repo := &revocationRepository{}
-	s := New(repo, &testPasswords{}, testTokens{}, testIDs(), Config{})
+	s := New(repo, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
 	if err := s.Logout(context.Background(), "opaque-refresh-token"); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +175,7 @@ func TestLogoutRevokesRefreshTokenByHash(t *testing.T) {
 
 func TestLogoutAllRevokesSessionsForAuthenticatedUser(t *testing.T) {
 	repo := &revocationRepository{}
-	s := New(repo, &testPasswords{}, testTokens{}, testIDs(), Config{})
+	s := New(repo, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
 	if err := s.LogoutAll(context.Background(), "user-123"); err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +185,7 @@ func TestLogoutAllRevokesSessionsForAuthenticatedUser(t *testing.T) {
 }
 
 type managementRepository struct {
-	Repository
+	repository.Repository
 	user                 *domain.User
 	updatedUserID        string
 	statusUserID, status string
@@ -272,7 +274,7 @@ func (r *managementRepository) PermissionAllowed(context.Context, string, string
 
 func TestUserUpdateStatusAndActivationValidation(t *testing.T) {
 	repo := &managementRepository{user: &domain.User{ID: "user-1"}}
-	s := New(repo, &testPasswords{}, testTokens{}, testIDs(), Config{})
+	s := New(repo, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
 	if err := s.UpdateUser(context.Background(), "user-1", " NEW@EXAMPLE.TEST ", " New Name "); err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +301,7 @@ func TestRolePermissionManagementAndAuthorizationDelegation(t *testing.T) {
 		effectivePermissions: []string{"homes.read", "payments.read"},
 		allowed:              true,
 	}
-	s := New(repo, &testPasswords{}, testTokens{}, testIDs(), Config{})
+	s := New(repo, &testPasswords{}, testTokens{}, testIDs(), contracts.Config{})
 	if err := s.CreateRole(context.Background(), domain.Role{Code: "TENANT_ADMIN", Name: "Tenant Admin", Scope: "TENANT", TenantID: &tenant}); err != nil {
 		t.Fatal(err)
 	}

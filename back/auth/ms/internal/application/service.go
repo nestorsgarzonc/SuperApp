@@ -10,6 +10,7 @@ import (
 	"superapp/auth/internal/application/sessions"
 	"superapp/auth/internal/application/users"
 	"superapp/auth/internal/domain"
+	"superapp/auth/internal/ports/repository"
 )
 
 type authUseCases interface {
@@ -62,7 +63,7 @@ type Service struct {
 	authorizationUseCases
 }
 
-func New(repo Repository, passwords PasswordHasher, tokens TokenIssuer, ids IDGenerator, cfg Config) *Service {
+func New(repo repository.Repository, passwords contracts.PasswordHasher, tokens contracts.TokenIssuer, ids contracts.IDGenerator, cfg contracts.Config) *Service {
 	return &Service{
 		authUseCases: auth.New(repo, repo, passwords, tokens, ids, cfg),
 		userUseCases: users.New(repo), sessionUseCases: sessions.New(repo),

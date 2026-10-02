@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"superapp/auth/internal/application"
+	"superapp/auth/internal/application/contracts"
 	"superapp/auth/internal/domain"
 )
 
 type loginFailureService struct{ Service }
 
-func (loginFailureService) Login(context.Context, string, string, string, string, string) (*domain.User, *application.TokenPair, error) {
+func (loginFailureService) Login(context.Context, string, string, string, string, string) (*domain.User, *contracts.TokenPair, error) {
 	return nil, nil, domain.ErrInvalidCredentials
 }
 
