@@ -6,10 +6,10 @@ Go 1.27.1 service using the standard HTTP server, `database/sql` with `pgx`, and
 - `cmd/setup/`: transactionally applies ordered SQL migrations and idempotent seeds.
 - `cmd/bootstrap-admin/`: one-time first-admin creation guarded by a PostgreSQL advisory lock and empty-user check.
 - `cmd/keygen/`: generates a local RSA keypair without overwriting existing files.
-- `internal/presentation/httpapi/`: HTTP routing, request validation, auth context, permission gates.
+- `internal/presentation/http/`: HTTP routing, request validation, auth context, permission gates.
 - `internal/application/`: orchestration and repository/security/ID ports.
 - `internal/domain/`: identity, role, permission, session shapes and domain errors.
-- `internal/infrastructure/postgres/`: PostgreSQL repository and transactional refresh-token rotation.
+- `internal/infrastructure/storage`: PostgreSQL repository and transactional refresh-token rotation.
 - `internal/infrastructure/security/`: bcrypt and RS256/JWKS.
 - `Makefile`, `Dockerfile`, `.env.example`: local commands and service packaging.
 

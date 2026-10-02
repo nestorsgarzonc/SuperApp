@@ -2,8 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"net/http"
-
 	"superapp/auth/internal/application"
 	"superapp/auth/internal/domain"
 )
@@ -41,20 +39,9 @@ type Service interface {
 }
 
 type API struct {
-	service      Service
-	tenantSecret []byte
-	mux          *http.ServeMux
+	Service      Service
+	TenantSecret []byte
 }
+type Identity struct{ UserID, Email, SessionID string }
 
-type identity struct{ UserID, Email, SessionID string }
-
-func New(service Service, tenantSecret []byte) *API {
-	a := &API{service: service, tenantSecret: tenantSecret, mux: http.NewServeMux()}
-	a.mux.HandleFunc("/health", a.health)
-	a.mux.HandleFunc("/ready", a.ready)
-	a.mux.HandleFunc("/.well-known/jwks.json", a.jwks)
-	a.mux.HandleFunc("/api/v1/", a.route)
-	return a
-}
-
-func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) { a.mux.ServeHTTP(w, r) }
+func New(service Service, secret []byte) *API { return &API{Service: service, TenantSecret: secret} }
