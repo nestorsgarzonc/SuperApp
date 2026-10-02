@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS visitor_vehicle_access_log;
+DROP TABLE IF EXISTS visitor_vehicle_preauths;
+DROP TABLE IF EXISTS visitor_passes;
+DROP TABLE IF EXISTS integration_notifications;
+DROP TABLE IF EXISTS ref_unit_members;
+DROP TABLE IF EXISTS ref_complex_staff;
+DROP TABLE IF EXISTS ref_units;
+DROP TABLE IF EXISTS ref_sections;
+DROP TABLE IF EXISTS ref_users;
+DROP TABLE IF EXISTS ref_complexes;
+DROP FUNCTION IF EXISTS set_updated_at();

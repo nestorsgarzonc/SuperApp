@@ -1,212 +1,231 @@
-# Control de accesos — visitantes y vehículos
+# SuperApp
 
-Este documento explica cómo está armado el módulo de control de accesos
-(pases de visitantes y vehículos de visitantes) y cómo levantarlo en local
-para probarlo. El mapa general del repositorio está en
-[architecture.md](./architecture.md).
+Aplicación para un conjunto residencial. Una sola pantalla (`front`)  
+reúne varios módulos. En el backend cada módulo es autónomo: su  
+microservicio (`ms`) y su base de datos (`db`). Ningún servicio lee la  
+base de otro. El tráfico del navegador entra por el API Gateway, que  
+enruta y valida antes de llegar a cada microservicio.
 
-## Qué puedes probar hoy
+El mapa de componentes está en [architecture.md](./architecture.md).
 
-Dos flujos, en la misma pantalla, cambiando de persona con el selector
-**Probar como**:
+## Módulos
 
-- **Personas.** Un residente autoriza a un visitante y recibe un token
-  (el equivalente al QR). Portería registra el ingreso y la salida con ese token.
-- **Vehículos.** Un residente preautoriza una placa. Portería consulta la
-  placa y registra entrada o salida. Si la placa no está autorizada, el
-  ingreso igual queda en la bitácora, marcado como no preautorizado.
+| Módulo | Qué cubre | Estado |
+| --- | --- | --- |
+| `front` | La aplicación. Un módulo de interfaz por feature y código común en `shared`. | La pantalla de control de accesos ya se puede abrir. Auth y notificaciones están reservados. |
+| `back/api-gateway` | Entrada única: enrutamiento, token y rate limit. No tiene base de datos. | Carpeta reservada. |
+| `back/auth` | Identidad, credenciales y tokens. | Carpeta reservada. |
+| `back/control-de-accesos` | Pases de visitantes y vehículos de visitantes. Microservicio en Go. | Implementado para prueba local. Ver la sección de abajo. |
+| `back/notificaciones` | Avisos (email, push, SMS) y su bitácora. | Carpeta reservada. |
+| `infra` | Infraestructura y despliegue. | Carpeta reservada. |
 
-La identidad todavía no pasa por el módulo de auth. La pantalla envía dos
-encabezados (`X-Complex-Id` y `X-User-Id`) y el microservicio decide si esa
-persona es residente o guardia. El API Gateway tampoco está construido: en
-este entorno de prueba el frontend habla directo con el microservicio.
+Las carpetas vacías se mantienen en git con `.gitkeep` hasta que tengan código.
 
-## Cómo levantarlo
+```
+SuperApp/
+├── back/
+│   ├── api-gateway/
+│   ├── auth/
+│   │   ├── ms/
+│   │   └── db/
+│   ├── control-de-accesos/
+│   │   ├── ms/
+│   │   └── db/
+│   └── notificaciones/
+│       ├── ms/
+│       └── db/
+├── front/
+│   └── src/
+│       ├── modules/
+│       │   ├── auth/
+│       │   ├── control-de-accesos/
+│       │   └── notificaciones/
+│       └── shared/
+├── infra/
+└── docs/
+```
 
-Hace falta Node.js (en esta máquina, v22) y Docker. Tres procesos:
+## Convenciones
 
-### 1. Base de datos
+*   `ms/` es el servicio desplegable del módulo.
+*   `db/` guarda solo el esquema, las migraciones y las semillas de ese módulo. Una base por módulo.
+*   `api-gateway` no tiene `db/`.
+*   El frontend llama al gateway, no a un microservicio directo. La excepción de hoy está en control de accesos: el gateway y auth todavía no existen, así que esa pantalla de prueba habla con su microservicio.
 
-Desde `back/control-de-accesos`:
+## `node_modules`
 
-```bash
+`node_modules` no es código de SuperApp. Es la carpeta donde npm descarga  
+las librerías declaradas en un `package.json`. No se edita, no se sube a  
+git (está en `.gitignore`) y se regenera con `npm install`.
+
+Hoy solo el frontend tiene `package.json`. El microservicio de control de  
+accesos es Go: sus librerías quedan en `go.mod` y se descargan con  
+`go mod download`, no con npm.
+
+| Dónde | Paquete | Para qué está |
+| --- | --- | --- |
+| Frontend | `react`, `react-dom` | La interfaz. |
+|   | `vite` | Servidor de desarrollo y empaquetado. Es dependencia de desarrollo. |
+|   | `@vitejs/plugin-react` | Traduce el JSX (el HTML escrito dentro de JavaScript). Es dependencia de desarrollo. |
+
+## Control de accesos
+
+Microservicio en Go. Cubre visitantes a pie y vehículos de visitantes.
+No incluye la identidad de los residentes (eso es `auth`), ni el envío
+real de avisos (eso es `notificaciones`), ni el inventario de carros del
+residente.
+
+La pantalla de prueba habla con este servicio directo, en el puerto 4000,
+porque el API Gateway todavía no existe. Manda `X-Complex-Id` y
+`X-User-Id`. El servicio mira las tablas `ref_*` y decide si esa persona
+es residente o portería. El selector **Probar como** reemplaza el login
+hasta que exista `auth`.
+
+Go 1.25 o superior tiene que estar en el `PATH`. Las dependencias están
+en `ms/go.mod` (`pgx`). No hay `package.json` en este módulo.
+
+### Cómo está armado
+
+La forma es la de `feature/auth-microservice`: dominio, casos de uso,
+infraestructura y HTTP. El proceso no aplica el esquema al arrancar.
+Eso lo hace `cmd/setup`, una sola vez.
+
+```
+back/control-de-accesos/
+├── docker-compose.yml          # Postgres 18, puerto 5433
+├── db/
+│   ├── migrations/
+│   │   ├── 001_access_schema.up.sql
+│   │   └── 001_access_schema.down.sql
+│   └── seeds/
+│       └── 001_demo.sql
+└── ms/
+    ├── cmd/access/             # servidor HTTP
+    ├── cmd/setup/              # migraciones y semillas
+    ├── go.mod
+    └── internal/
+        ├── domain/             # entidades, reglas y errores
+        ├── application/        # casos de uso
+        ├── infrastructure/
+        │   ├── config/         # ACCESS_ADDR, ACCESS_DATABASE_URL
+        │   └── postgres/       # SQL
+        └── presentation/httpapi/
+
+front/src/modules/control-de-accesos/
+├── AccessControlModule.jsx
+├── api.js
+└── module.css
+```
+
+`front/index.html`, `front/package.json` y `front/vite.config.js` son de
+la aplicación completa. Hoy `App.jsx` monta solo esta pantalla.
+
+Una petición entra por `httpapi`, que resuelve al actor y exige el rol.
+`application` valida la ventana de tiempo, la unidad y que el residente
+pertenezca a esa unidad. `postgres` escribe en la base de este módulo.
+Un vecino no puede crear, leer, revocar ni extender lo de otra unidad.
+
+| Capa | Qué decide |
+| --- | --- |
+| `httpapi` | Ruta, JSON y rol (residente o portería). |
+| `application` | Nombre, vigencia, placa y pertenencia a la unidad. |
+| `postgres` | Inserta, actualiza y lee. No decide el negocio. |
+| `domain` | Estados del pase, errores y normalización de la placa. |
+
+### Datos
+
+La base es solo de este módulo. PostgreSQL 18, puerto **5433**,
+usuario `accesos`, clave `accesos`, base `control_accesos`.
+
+| Tabla | Dueño del dato |
+| --- | --- |
+| `ref_complexes`, `ref_sections`, `ref_units`, `ref_users`, `ref_complex_staff`, `ref_unit_members` | Copia local. Los mismos UUID del demo. No son tablas de `auth`. |
+| `visitor_passes` | Pase del visitante a pie. |
+| `visitor_vehicle_preauths` | Placa que el residente espera. |
+| `visitor_vehicle_access_log` | Entrada o salida anotada por portería. |
+| `integration_notifications` | Aviso al anfitrión. Hueco hasta que exista `notificaciones`. |
+
+El pase nace `active`. Portería lo pasa a `used` al ingresar y a
+`checked_out` al salir. El residente puede dejarlo en `revoked` mientras
+siga activo. Si se vence, pasa a `expired`. La vigencia máxima es 30 días.
+La placa se guarda en mayúsculas y sin guiones: `ABC-123` y `ABC123` son
+la misma.
+
+### Rutas
+
+El servicio escucha en **http://localhost:4000**. Vite reenvía estas
+rutas desde el puerto 5173.
+
+| Método | Ruta | Quién |
+| --- | --- | --- |
+| GET | `/health`, `/ready` | Nadie. `/ready` comprueba Postgres. |
+| GET | `/integration/context` | Nadie. Lista el conjunto y las personas de prueba. |
+| GET | `/integration/notifications` | El actor de los headers. |
+| POST | `/visitor-passes` | Residente. Crea un pase y devuelve el token. |
+| GET | `/visitor-passes/units/{unitId}` | Residente de esa unidad. |
+| GET | `/visitor-passes/{id}` | Residente de la unidad del pase. |
+| POST | `/visitor-passes/{id}/revoke` | Residente. Solo si el pase está activo. |
+| POST | `/visitor-passes/{id}/extend` | Residente. Solo si sigue activo y no venció. |
+| GET | `/visitor-passes/checkpoint-activity` | Portería. Conteos y movimientos, sin el token. |
+| POST | `/visitor-passes/validate` | Portería. Marca el ingreso. |
+| POST | `/visitor-passes/check-out` | Portería. Marca la salida. |
+| POST, GET | `/vehicles/visitor-preauth` | Residente. Crea o lista sus placas. |
+| DELETE | `/vehicles/visitor-preauth/{id}` | Residente. Revoca la suya. |
+| GET | `/vehicles/lookup?plate=` | Portería. Busca una preautorización vigente. |
+| POST, GET | `/vehicles/access-log` | Portería. Anota o lista la bitácora. |
+
+Un error sale así: `{ "error": { "code", "message" } }`. La pantalla
+muestra `message`.
+
+### Levantar
+
+Hace falta Docker y Go 1.25 o superior en el `PATH`. El frontend sigue
+en Node.js.
+
+Base de datos, desde `back/control-de-accesos`:
+
+```powershell
 docker compose up -d
 ```
 
-PostgreSQL 18 queda en el puerto **5433** (el 5432 se deja libre por si
-hay otro Postgres). Usuario, clave y base: `accesos` / `accesos` /
-`control_accesos`. El contenedor se llama `control_accesos_db`.
+Esquema y datos, desde `back/control-de-accesos/ms`. Docker solo deja
+Postgres vacío. `setup` aplica `db/migrations/*.up.sql` y después
+`db/seeds`.
 
-La primera vez que el volumen está vacío, Docker ejecuta
-`db/001_schema.sql` y `db/002_seed.sql`. Si el volumen ya existe y las
-tablas no se crearon, al arrancar el microservicio las aplica él mismo
-(`applySchema` en `ms/src/db.js`) solo si falta la tabla `visitor_passes`.
-
-### 2. Microservicio
-
-Desde `back/control-de-accesos/ms`:
-
-```bash
-npm install
-npm start
+```powershell
+$env:ACCESS_DATABASE_URL = 'postgres://accesos:accesos@localhost:5433/control_accesos?sslmode=disable'
+go run ./cmd/setup
+go run ./cmd/access
 ```
 
-Escucha en **http://localhost:4000**. `npm install` solo hace falta la
-primera vez, o cuando cambie `package.json`.
+`setup` hace falta la primera vez, o cuando cambie una migración. El
+proceso HTTP no lo repite.
 
-Comprobación:
+Frontend, desde `front`:
 
-```bash
-curl http://localhost:4000/health
-```
-
-Respuesta esperada: `{"ok":true,"module":"control-de-accesos"}`.
-
-### 3. Frontend
-
-Desde `front`:
-
-```bash
+```powershell
 npm install
 npm run dev
 ```
 
-Abre **http://localhost:5173**. Vite reenvía `/visitor-passes`, `/vehicles`,
-`/integration` y `/health` al puerto 4000, así que el navegador no llama
-al microservicio por otro origen.
+Abre **http://localhost:5173**.
 
-## Recorrido en la pantalla
+### Datos de ejemplo
 
-El seed carga el conjunto **Demo Residential Complex** con estas personas:
+El conjunto es **Demo Residential Complex**.
 
-| Persona | Rol en la pantalla | Qué trae de ejemplo |
-|---|---|---|
-| John Resident | Residente, unidad A-101 | Pase activo de **Maria Visitor**. Token: `demo-token-maria-visitor` |
-| Jane Resident | Residente, unidad A-102 | Placa **ABC-123** (se guarda como `ABC123`), visitante Rappi Driver |
-| Guard Demo | Portería | Consulta tokens y placas, registra entradas y salidas |
+| Persona | Rol | Qué trae |
+| --- | --- | --- |
+| John Resident | Residente, A-101 | Pase de Maria Visitor. Token: `demo-token-maria-visitor` |
+| Jane Resident | Residente, A-102 | Placa `ABC-123`, visitante Rappi Driver |
+| Guard Demo | Portería | Registra ingresos y salidas. No crea autorizaciones. |
 
-La pantalla abre con el primer residente de la lista (Jane). Para ver el
-pase de María hay que cambiar a John.
+La pantalla abre en Jane. Para ver el pase de María hay que cambiar a John.
 
-**Personas**
+**Personas.** Como John, el pase aparece en la pestaña Personas; también
+se puede crear otro y copiar el token. Como Guard Demo, ese token registra
+el ingreso y después la salida. Al volver al residente se ve el aviso.
 
-1. Como John Resident, pestaña Personas: aparece Maria Visitor y su token.
-2. Crea otro visitante (nombre y documento). El aviso muestra el token nuevo.
-3. Cambia a Guard Demo. El campo ya trae `demo-token-maria-visitor`.
-4. **Registrar ingreso** y después **Registrar salida**. La lista de portería
-   muestra el movimiento y el anfitrión recibe un aviso (se ve al volver
-   al residente, en "Avisos del anfitrión").
-
-**Vehículos**
-
-1. Como Jane Resident, pestaña Vehículos: aparece la placa ABC123.
-2. Cambia a Guard Demo, busca `ABC-123` y pulsa **Entrada** y luego **Salida**.
-3. Para una placa nueva: como residente, autoriza otra placa; como portería,
-   búsca la misma y registra la entrada.
-
-## Cómo está hecho
-
-Cada feature del backend es autónomo: su microservicio (`ms`) y su base
-(`db`). Este módulo no lee tablas de auth ni de notificaciones. Lo que
-necesita de otros módulos (complejo, unidades, usuarios) vive en tablas
-`ref_*`, una copia local con los mismos UUID del demo.
-
-```
-back/control-de-accesos/
-├── docker-compose.yml      # Postgres solo de este módulo, puerto 5433
-├── db/
-│   ├── 001_schema.sql      # tablas ref_*, pases, preautorizaciones, bitácora
-│   └── 002_seed.sql        # Demo Residential Complex + María + placa ABC123
-└── ms/
-    ├── package.json
-    └── src/
-        ├── index.js        # rutas HTTP
-        ├── passes.js       # pases de visitante
-        ├── vehicles.js     # placas de visitantes
-        ├── db.js           # conexión y aplicación del esquema
-        └── errors.js       # errores de negocio con código HTTP
-
-front/
-├── index.html              # página que carga Vite
-├── package.json
-├── vite.config.js          # proxy hacia el puerto 4000
-└── src/
-    ├── main.jsx
-    ├── App.jsx             # monta solo este módulo
-    └── modules/control-de-accesos/
-        ├── AccessControlModule.jsx
-        ├── api.js          # llamadas al microservicio
-        └── module.css
-```
-
-`index.html`, `package.json` y `vite.config.js` van en `front/`, no dentro
-de `src/`. Vite trata la carpeta del `index.html` como raíz del sitio, y
-el script de esa página apunta a `/src/main.jsx`.
-
-### Pases de visitante
-
-Tabla `visitor_passes`. El residente de la unidad crea el pase (máximo 30
-días), lo extiende o lo revoca. El token es aleatorio; el del seed es fijo
-para poder probar portería sin crearlo a mano. Portería solo puede validar
-ingreso (`active` → `used`) y registrar salida (`used` → `checked_out`).
-Al ingresar o salir se inserta una fila en `integration_notifications`
-para el anfitrión. Esa tabla es el hueco donde, más adelante, escribe el
-módulo de notificaciones; hoy la lee la misma pantalla.
-
-Un residente solo ve y modifica pases de las unidades donde está en
-`ref_unit_members`.
-
-### Vehículos de visitantes
-
-Tabla `visitor_vehicle_preauths` y bitácora `visitor_vehicle_access_log`.
-La placa se normaliza a mayúsculas y sin espacios ni guiones, por eso
-`ABC-123` y `ABC123` son la misma. No incluye los vehículos del residente:
-ese inventario pertenece a otro módulo.
-
-### Lo que no hace falta para esta prueba
-
-Siguen vacíos, a propósito, y no bloquean este recorrido:
-
-- `back/api-gateway`
-- `back/auth`
-- `back/notificaciones`
-- `infra`
-
-Cuando existan, el navegador dejará de hablar directo con el puerto 4000
-y los encabezados de prueba los reemplazará un token de auth.
-
-## Para qué sirve `node_modules`
-
-`node_modules` no es código del proyecto. Es la carpeta donde npm descarga
-las librerías que declara `package.json`. No se edita, no se sube a git
-(está en `.gitignore`) y se puede borrar: `npm install` la vuelve a crear
-a partir de `package.json` y `package-lock.json`.
-
-Hay dos, una por aplicación:
-
-- `back/control-de-accesos/ms/node_modules` — librerías del API.
-- `front/node_modules` — librerías de la pantalla.
-
-Cada librería trae las suyas, por eso la carpeta tiene cientos de
-subcarpetas aunque en `package.json` solo figuren unas pocas. Esas
-dependencias indirectas (por ejemplo las que usa Vite para empaquetar)
-no se listan en el `package.json` del proyecto.
-
-### Microservicio (`back/control-de-accesos/ms/package.json`)
-
-| Paquete | Para qué está |
-|---|---|
-| `express` | Servidor HTTP y las rutas (`/visitor-passes`, `/vehicles`, …). |
-| `cors` | Permite que el navegador llame al API si el origen no es el mismo puerto. |
-| `pg` | Cliente de PostgreSQL. El pool de conexiones está en `ms/src/db.js`. |
-
-### Frontend (`front/package.json`)
-
-| Paquete | Para qué está |
-|---|---|
-| `react` y `react-dom` | La interfaz: pantallas, formularios y la lista de pases y placas. |
-| `vite` | Servidor de desarrollo (puerto 5173) y el empaquetado de `npm run build`. |
-| `@vitejs/plugin-react` | Traduce el JSX de los componentes (el HTML dentro de JavaScript) para que el navegador pueda ejecutarlo. |
-
-`vite` y `@vitejs/plugin-react` son `devDependencies`: hacen falta para
-desarrollar y construir, no para el API.
+**Vehículos.** Como Jane, la placa aparece en Vehículos. Como Guard Demo,
+buscar `ABC-123` y registrar entrada y salida. Una placa sin
+preautorización igual queda en la bitácora.

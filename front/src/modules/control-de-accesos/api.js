@@ -15,7 +15,8 @@ async function request(path, { method = "GET", actor, body } = {}) {
   if (response.status === 204) return null;
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.error || `Error ${response.status}`);
+    const message = typeof data.error === "string" ? data.error : data.error?.message;
+    throw new Error(message || `Error ${response.status}`);
   }
   return data;
 }
