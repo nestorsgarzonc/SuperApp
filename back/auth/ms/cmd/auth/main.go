@@ -15,8 +15,8 @@ import (
 	"superapp/auth/internal/application"
 	"superapp/auth/internal/infrastructure/config"
 	"superapp/auth/internal/infrastructure/ids"
+	"superapp/auth/internal/infrastructure/persistence/postgres"
 	"superapp/auth/internal/infrastructure/security"
-	"superapp/auth/internal/infrastructure/storage"
 	httpapi "superapp/auth/internal/presentation/http/server"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
