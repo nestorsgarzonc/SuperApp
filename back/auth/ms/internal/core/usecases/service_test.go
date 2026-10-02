@@ -9,6 +9,10 @@ import (
 	"superapp/auth/internal/core/domain"
 	"superapp/auth/internal/core/ports/repository"
 	"superapp/auth/internal/core/ports/security"
+	authlogin "superapp/auth/internal/core/usecases/auth/login"
+	authlogout "superapp/auth/internal/core/usecases/auth/logout"
+	authrefresh "superapp/auth/internal/core/usecases/auth/refresh"
+	authregister "superapp/auth/internal/core/usecases/auth/register"
 	"superapp/auth/internal/core/usecases/contracts"
 )
 
@@ -37,10 +41,44 @@ type testRepositories interface {
 	repository.AuthorizationRepository
 }
 
-func newTestApplication(repo testRepositories, passwords security.PasswordHasher, tokens security.TokenIssuer, ids security.IDGenerator, cfg contracts.Config) *Service {
-	return New(RepositoryDependencies{
-		Users: repo, Sessions: repo, Roles: repo, Permissions: repo, Authorization: repo,
-	}, passwords, tokens, ids, cfg)
+type testApplication struct {
+	*Service
+	login    *authlogin.UseCase
+	register *authregister.UseCase
+	refresh  *authrefresh.UseCase
+	logout   *authlogout.UseCase
+}
+
+func newTestApplication(repo testRepositories, passwords security.PasswordHasher, tokens security.TokenIssuer, ids security.IDGenerator, cfg contracts.Config) *testApplication {
+	return &testApplication{
+		Service: New(RepositoryDependencies{
+			Users: repo, Sessions: repo, Roles: repo, Permissions: repo, Authorization: repo,
+		}, ids),
+		login:    authlogin.New(repo, repo, passwords, tokens, ids, cfg),
+		register: authregister.New(repo, passwords, ids),
+		refresh:  authrefresh.New(repo, tokens, ids, cfg),
+		logout:   authlogout.New(repo),
+	}
+}
+
+func (s *testApplication) Register(ctx context.Context, email, password, name string) (*domain.User, error) {
+	result, err := s.register.Execute(ctx, authregister.Requester{Email: email, Password: password, Name: name})
+	return result.User, err
+}
+
+func (s *testApplication) Login(ctx context.Context, email, password, device, userAgent, ip string) (*domain.User, *contracts.TokenPair, error) {
+	result, err := s.login.Execute(ctx, authlogin.Requester{Email: email, Password: password, Device: device, UserAgent: userAgent, IP: ip})
+	return result.User, &result.Tokens, err
+}
+
+func (s *testApplication) Refresh(ctx context.Context, raw string) (*contracts.TokenPair, error) {
+	result, err := s.refresh.Execute(ctx, authrefresh.Requester{RefreshToken: raw})
+	return &result.Tokens, err
+}
+
+func (s *testApplication) Logout(ctx context.Context, raw string) error {
+	_, err := s.logout.Execute(ctx, authlogout.Requester{RefreshToken: raw})
+	return err
 }
 
 func (r *testRepository) CreateUser(_ context.Context, id, email, hash, name string) (*domain.User, error) {

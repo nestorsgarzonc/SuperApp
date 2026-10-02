@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"superapp/auth/internal/core/domain"
+	"superapp/auth/internal/core/usecases/auth/login"
 	dtoAuth "superapp/auth/internal/presentation/dto/auth"
 	dtoUsers "superapp/auth/internal/presentation/dto/users"
 	shared "superapp/auth/internal/presentation/shared"
@@ -24,7 +25,9 @@ func (a *Handlers) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-	u, p, err := a.Authentication.Login(r.Context(), in.Email, in.Password, in.Device, r.UserAgent(), ip)
+	result, err := a.Login.Execute(r.Context(), login.Requester{
+		Email: in.Email, Password: in.Password, Device: in.Device, UserAgent: r.UserAgent(), IP: ip,
+	})
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidCredentials) {
 			shared.WriteError(w, 401, "invalid_credentials", "Invalid email or password")
@@ -33,5 +36,5 @@ func (a *Handlers) login(w http.ResponseWriter, r *http.Request) {
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, 200, map[string]any{"user": dtoUsers.FromDomain(u), "tokens": dtoAuth.FromDomain(p)})
+	shared.WriteJSON(w, 200, map[string]any{"user": dtoUsers.FromDomain(result.User), "tokens": dtoAuth.FromDomain(&result.Tokens)})
 }

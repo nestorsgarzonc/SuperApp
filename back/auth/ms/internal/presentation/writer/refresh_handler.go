@@ -3,6 +3,7 @@ package writer
 import (
 	"net/http"
 	"superapp/auth/internal/core/domain"
+	"superapp/auth/internal/core/usecases/auth/refresh"
 	dtoAuth "superapp/auth/internal/presentation/dto/auth"
 	shared "superapp/auth/internal/presentation/shared"
 )
@@ -18,10 +19,10 @@ func (a *Handlers) refresh(w http.ResponseWriter, r *http.Request) {
 		a.Fail(w, domain.ErrInvalidToken)
 		return
 	}
-	p, err := a.Authentication.Refresh(r.Context(), in.RefreshToken)
+	result, err := a.Refresh.Execute(r.Context(), refresh.Requester{RefreshToken: in.RefreshToken})
 	if err != nil {
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, 200, dtoAuth.FromDomain(p))
+	shared.WriteJSON(w, 200, dtoAuth.FromDomain(&result.Tokens))
 }

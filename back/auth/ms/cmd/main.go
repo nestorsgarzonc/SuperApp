@@ -13,6 +13,10 @@ import (
 
 	httpapi "superapp/auth/internal"
 	usecases "superapp/auth/internal/core/usecases"
+	"superapp/auth/internal/core/usecases/auth/login"
+	"superapp/auth/internal/core/usecases/auth/logout"
+	"superapp/auth/internal/core/usecases/auth/refresh"
+	"superapp/auth/internal/core/usecases/auth/register"
 	"superapp/auth/internal/core/usecases/contracts"
 	database "superapp/auth/internal/infrastructure/persistence/postgres"
 	pgadapter "superapp/auth/internal/infrastructure/repository/postgres"
@@ -40,9 +44,13 @@ func main() {
 	repo := pgadapter.New(db)
 	service := usecases.New(usecases.RepositoryDependencies{
 		Users: repo, Sessions: repo, Roles: repo, Permissions: repo, Authorization: repo,
-	}, password.Passwords{}, tokens, uuid.NewString, contracts.Config{AccessTTL: cfg.accessTTL, RefreshTTL: cfg.refreshTTL})
+	}, uuid.NewString)
 	services := httpshared.Services{
-		Auth: service, Users: service, Sessions: service,
+		Login:    login.New(repo, repo, password.Passwords{}, tokens, uuid.NewString, contracts.Config{AccessTTL: cfg.accessTTL, RefreshTTL: cfg.refreshTTL}),
+		Register: register.New(repo, password.Passwords{}, uuid.NewString),
+		Refresh:  refresh.New(repo, tokens, uuid.NewString, contracts.Config{AccessTTL: cfg.accessTTL, RefreshTTL: cfg.refreshTTL}),
+		Logout:   logout.New(repo), Tokens: tokens,
+		Users: service, Sessions: service,
 		Roles: service, Permissions: service, Authorization: service,
 	}
 	server := &http.Server{Addr: cfg.addr, Handler: httpapi.New(services, cfg.gatewayTenantSecret), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}

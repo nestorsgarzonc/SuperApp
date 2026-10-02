@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"superapp/auth/internal/core/domain"
+	"superapp/auth/internal/core/usecases/auth/register"
 	dtoUsers "superapp/auth/internal/presentation/dto/users"
 	shared "superapp/auth/internal/presentation/shared"
 )
@@ -24,12 +25,12 @@ func (a *Handlers) createUser(w http.ResponseWriter, r *http.Request) {
 		a.Fail(w, domain.ErrInvalidArgument)
 		return
 	}
-	u, err := a.Authentication.Register(r.Context(), in.Email, in.Password, in.FullName)
+	result, err := a.Register.Execute(r.Context(), register.Requester{Email: in.Email, Password: in.Password, Name: in.FullName})
 	if err != nil {
 		a.Fail(w, err)
 		return
 	}
-	shared.WriteJSON(w, 201, dtoUsers.FromDomain(u))
+	shared.WriteJSON(w, 201, dtoUsers.FromDomain(result.User))
 }
 func (a *Handlers) userRoute(w http.ResponseWriter, r *http.Request, p []string) {
 	if len(p) < 2 {

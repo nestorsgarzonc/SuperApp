@@ -5,23 +5,13 @@ import (
 	"superapp/auth/internal/core/domain"
 	"superapp/auth/internal/core/ports/repository"
 	"superapp/auth/internal/core/ports/security"
-	"superapp/auth/internal/core/usecases/auth"
 	"superapp/auth/internal/core/usecases/authorization"
-	contracts "superapp/auth/internal/core/usecases/contracts"
 	"superapp/auth/internal/core/usecases/permissions"
 	"superapp/auth/internal/core/usecases/roles"
 	"superapp/auth/internal/core/usecases/sessions"
 	"superapp/auth/internal/core/usecases/users"
 )
 
-type authUseCases interface {
-	Register(context.Context, string, string, string) (*domain.User, error)
-	Login(context.Context, string, string, string, string, string) (*domain.User, *contracts.TokenPair, error)
-	Refresh(context.Context, string) (*contracts.TokenPair, error)
-	Logout(context.Context, string) error
-	Authenticate(string) (*security.TokenClaims, error)
-	JWKS() map[string]any
-}
 type userUseCases interface {
 	User(context.Context, string) (*domain.User, error)
 	UpdateUser(context.Context, string, *string, *string, *string) error
@@ -55,7 +45,6 @@ type authorizationUseCases interface {
 	RevokeRole(context.Context, string, string, *string) error
 }
 type Service struct {
-	authUseCases
 	userUseCases
 	sessionUseCases
 	roleUseCases
@@ -71,9 +60,8 @@ type RepositoryDependencies struct {
 	Authorization repository.AuthorizationRepository
 }
 
-func New(repositories RepositoryDependencies, passwords security.PasswordHasher, tokens security.TokenIssuer, ids security.IDGenerator, cfg contracts.Config) *Service {
+func New(repositories RepositoryDependencies, ids security.IDGenerator) *Service {
 	return &Service{
-		authUseCases: auth.New(repositories.Users, repositories.Sessions, passwords, tokens, ids, cfg),
 		userUseCases: users.New(repositories.Users), sessionUseCases: sessions.New(repositories.Sessions),
 		roleUseCases: roles.New(repositories.Roles, ids), permissionUseCases: permissions.New(repositories.Permissions, ids),
 		authorizationUseCases: authorization.New(repositories.Authorization),

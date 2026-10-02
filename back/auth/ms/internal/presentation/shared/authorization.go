@@ -18,7 +18,7 @@ func (a *API) Auth(w http.ResponseWriter, r *http.Request) (Identity, bool) {
 		WriteError(w, 401, "unauthorized", "Bearer access token required")
 		return Identity{}, false
 	}
-	claims, err := a.Authentication.Authenticate(strings.TrimPrefix(header, "Bearer "))
+	claims, err := a.Tokens.Verify(strings.TrimPrefix(header, "Bearer "))
 	if err != nil {
 		WriteError(w, 401, "unauthorized", "Invalid or expired access token")
 		return Identity{}, false

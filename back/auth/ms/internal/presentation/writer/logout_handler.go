@@ -2,6 +2,7 @@ package writer
 
 import (
 	"net/http"
+	"superapp/auth/internal/core/usecases/auth/logout"
 	shared "superapp/auth/internal/presentation/shared"
 )
 
@@ -16,5 +17,6 @@ func (a *Handlers) logout(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		return
 	}
-	a.Respond(w, a.Authentication.Logout(r.Context(), in.RefreshToken), 204, nil)
+	_, err := a.Logout.Execute(r.Context(), logout.Requester{RefreshToken: in.RefreshToken})
+	a.Respond(w, err, 204, nil)
 }

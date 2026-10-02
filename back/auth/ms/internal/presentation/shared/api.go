@@ -4,15 +4,26 @@ import (
 	"context"
 	"superapp/auth/internal/core/domain"
 	"superapp/auth/internal/core/ports/security"
-	"superapp/auth/internal/core/usecases/contracts"
+	"superapp/auth/internal/core/usecases/auth/login"
+	"superapp/auth/internal/core/usecases/auth/logout"
+	"superapp/auth/internal/core/usecases/auth/refresh"
+	"superapp/auth/internal/core/usecases/auth/register"
 )
 
-type AuthService interface {
-	Register(context.Context, string, string, string) (*domain.User, error)
-	Login(context.Context, string, string, string, string, string) (*domain.User, *contracts.TokenPair, error)
-	Refresh(context.Context, string) (*contracts.TokenPair, error)
-	Logout(context.Context, string) error
-	Authenticate(string) (*security.TokenClaims, error)
+type LoginUseCase interface {
+	Execute(context.Context, login.Requester) (login.Presenter, error)
+}
+type RegisterUseCase interface {
+	Execute(context.Context, register.Requester) (register.Presenter, error)
+}
+type RefreshUseCase interface {
+	Execute(context.Context, refresh.Requester) (refresh.Presenter, error)
+}
+type LogoutUseCase interface {
+	Execute(context.Context, logout.Requester) (logout.Presenter, error)
+}
+type TokenReader interface {
+	Verify(string) (*security.TokenClaims, error)
 	JWKS() map[string]any
 }
 
@@ -54,7 +65,11 @@ type AuthorizationService interface {
 }
 
 type Services struct {
-	Auth          AuthService
+	Login         LoginUseCase
+	Register      RegisterUseCase
+	Refresh       RefreshUseCase
+	Logout        LogoutUseCase
+	Tokens        TokenReader
 	Users         UserService
 	Sessions      SessionService
 	Roles         RoleService
@@ -63,19 +78,24 @@ type Services struct {
 }
 
 type API struct {
-	Authentication AuthService
-	Users          UserService
-	Sessions       SessionService
-	Roles          RoleService
-	Permissions    PermissionService
-	Authorization  AuthorizationService
-	TenantSecret   []byte
+	Login         LoginUseCase
+	Register      RegisterUseCase
+	Refresh       RefreshUseCase
+	Logout        LogoutUseCase
+	Tokens        TokenReader
+	Users         UserService
+	Sessions      SessionService
+	Roles         RoleService
+	Permissions   PermissionService
+	Authorization AuthorizationService
+	TenantSecret  []byte
 }
 type Identity struct{ UserID, Email, SessionID string }
 
 func New(services Services, secret []byte) *API {
 	return &API{
-		Authentication: services.Auth, Users: services.Users, Sessions: services.Sessions,
+		Login: services.Login, Register: services.Register, Refresh: services.Refresh,
+		Logout: services.Logout, Tokens: services.Tokens, Users: services.Users, Sessions: services.Sessions,
 		Roles: services.Roles, Permissions: services.Permissions,
 		Authorization: services.Authorization, TenantSecret: secret,
 	}

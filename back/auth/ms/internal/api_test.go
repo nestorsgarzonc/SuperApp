@@ -8,30 +8,18 @@ import (
 	"testing"
 
 	"superapp/auth/internal/core/domain"
-	"superapp/auth/internal/core/ports/security"
-	"superapp/auth/internal/core/usecases/contracts"
+	"superapp/auth/internal/core/usecases/auth/login"
 	shared "superapp/auth/internal/presentation/shared"
 )
 
-type loginFailureService struct{}
+type loginFailureUseCase struct{}
 
-func (loginFailureService) Register(context.Context, string, string, string) (*domain.User, error) {
-	return nil, nil
+func (loginFailureUseCase) Execute(context.Context, login.Requester) (login.Presenter, error) {
+	return login.Presenter{}, domain.ErrInvalidCredentials
 }
-func (loginFailureService) Login(context.Context, string, string, string, string, string) (*domain.User, *contracts.TokenPair, error) {
-	return nil, nil, domain.ErrInvalidCredentials
-}
-func (loginFailureService) Refresh(context.Context, string) (*contracts.TokenPair, error) {
-	return nil, nil
-}
-func (loginFailureService) Logout(context.Context, string) error { return nil }
-func (loginFailureService) Authenticate(string) (*security.TokenClaims, error) {
-	return nil, nil
-}
-func (loginFailureService) JWKS() map[string]any { return nil }
 
 func TestInvalidLoginDoesNotRevealAddress(t *testing.T) {
-	services := shared.Services{Auth: loginFailureService{}}
+	services := shared.Services{Login: loginFailureUseCase{}}
 	api := New(services, nil)
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"known@example.test","password":"wrong"}`))
 	w := httptest.NewRecorder()
