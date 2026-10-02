@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: control_de_accesos
-      POSTGRES_PASSWORD: control_de_accesos
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
       POSTGRES_DB: control_de_accesos
       # postgres:18+ rejects a fresh volume mounted directly at
       # /var/lib/postgresql/data (new pg_ctlcluster layout).
@@ -28,11 +28,11 @@ services:
     environment:
       ENV: development
       PORT: 8080
-      JWT_SECRET: dev_jwt_secret_change_in_production_min_32_chars
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       DB_HOST: db
       DB_PORT: 5432
       DB_USER: control_de_accesos
-      DB_PASSWORD: control_de_accesos
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
       DB_NAME: control_de_accesos
       DB_SSLMODE: disable
       # Base URL for outbound event notifications. Empty = disabled.

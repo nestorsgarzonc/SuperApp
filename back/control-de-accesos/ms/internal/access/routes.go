@@ -30,7 +30,8 @@ func RegisterRoutes(r chi.Router, h *Handler, checker authmw.ComplexAccessChecke
 		r.Post("/", h.CreateAccessGrant)
 		r.Get("/{id}", h.GetAccessGrant)
 		r.Patch("/{id}/cancel", h.CancelAccessGrant)
-		r.Post("/validate", h.ValidateAccessGrant)
+		// Validation is the gate-side action: only guards/admins scan passes.
+		r.With(authmw.RequireRoleMiddleware(RoleGuard, RoleAdmin)).Post("/validate", h.ValidateAccessGrant)
 	})
 }
 

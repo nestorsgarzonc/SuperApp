@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"controldeaccesos/internal/access"
+	"controldeaccesos/internal/audit"
 	"controldeaccesos/internal/config"
 	"controldeaccesos/internal/directory"
 	"controldeaccesos/internal/notifier"
@@ -66,13 +67,15 @@ func main() {
 
 	dir := directory.NewRepository(db.DB)
 	accessRepo := access.NewPostgresRepository(db.DB)
+	auditRepo := audit.NewRepository(db.DB)
 	notifierClient := notifier.New(cfg.NotificationsURL, logger)
-	accessService := access.NewService(accessRepo, dir, dir, notifierClient, logger)
+	accessService := access.NewService(accessRepo, dir, dir, notifierClient, auditRepo, logger)
 	accessHandler := access.NewHandler(accessService)
 
 	r := chi.NewRouter()
 	r.Use(chimw.Logger)
 	r.Use(chimw.Recoverer)
+	r.Use(authmw.WithRequestMeta)
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := db.DB.PingContext(r.Context()); err != nil {
@@ -104,9 +107,14 @@ func main() {
 }
 
 // devTokenHandler issues a bearer token for the seeded demo resident.
-// Only mounted when ENV=development.
+// ?role=GUARD|ADMIN|RESIDENT overrides the role claim for testing
+// role-gated endpoints. Only mounted when ENV=development.
 func devTokenHandler(w http.ResponseWriter, r *http.Request) {
-	token, err := authmw.GenerateJWT(demoUserID, demoUserEmail, demoUserRole, demoComplexID)
+	role := demoUserRole
+	if rp := r.URL.Query().Get("role"); rp != "" {
+		role = rp
+	}
+	token, err := authmw.GenerateJWT(demoUserID, demoUserEmail, role, demoComplexID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

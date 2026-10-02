@@ -20,19 +20,6 @@ func NewHandler(service Service) *Handler {
 	return &Handler{service: service}
 }
 
-// resolveComplexID returns the complex id for a request. It prefers the
-// explicit ?complex_id= query param (backward compatible) but falls back to
-// the X-Complex-ID header that RequireComplexAccessMiddleware injects into the
-// context — which is what every authenticated client actually sends. Without
-// this fallback these list endpoints returned 422 even though the caller was
-// already scoped to a complex.
-func resolveComplexID(r *http.Request) (uuid.UUID, error) {
-	if s := r.URL.Query().Get("complex_id"); s != "" {
-		return uuid.Parse(s)
-	}
-	return middleware.GetComplexIDAsUUID(r.Context())
-}
-
 func respondGrantWriteError(w http.ResponseWriter, err error) {
 	switch {
 	case stderrors.Is(err, ErrUnitAccessDenied):
@@ -126,9 +113,11 @@ func (h *Handler) CreateQRBatch(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetQRCodes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	complexID, err := resolveComplexID(r)
+	complexID, err := middleware.GetComplexIDAsUUID(ctx)
 	if err != nil {
-		errors.RespondError(w, nil, errors.NewBadRequestError("complex_id: missing or not a valid UUID"))
+		errors.RespondError(w, nil, errors.NewValidationError(map[string][]string{
+			"X-Complex-ID": {"Missing or invalid complex ID"},
+		}))
 		return
 	}
 
@@ -182,9 +171,11 @@ func (h *Handler) CreatePreAuth(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetPreAuthorizations(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	complexID, err := resolveComplexID(r)
+	complexID, err := middleware.GetComplexIDAsUUID(ctx)
 	if err != nil {
-		errors.RespondError(w, nil, errors.NewBadRequestError("complex_id: missing or not a valid UUID"))
+		errors.RespondError(w, nil, errors.NewValidationError(map[string][]string{
+			"X-Complex-ID": {"Missing or invalid complex ID"},
+		}))
 		return
 	}
 

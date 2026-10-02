@@ -2,14 +2,48 @@ package access
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 const (
+	maxNameLength     = 200
+	maxIDNumberLength = 50
+	maxDetailsLength  = 1000
+)
+
+func checkMaxLen(errs map[string][]string, field, value string, max int) {
+	if len(value) > max {
+		errs[field] = append(errs[field], fmt.Sprintf("must be at most %d characters", max))
+	}
+}
+
+// validateDateWindow enforces that valid_until isn't in the past and, when a
+// valid_from is also given, that it precedes valid_until. A zero validUntil
+// is skipped — the caller's own "required" check already reports that.
+func validateDateWindow(errs map[string][]string, validFrom *time.Time, validUntil time.Time) {
+	if validUntil.IsZero() {
+		return
+	}
+	if validUntil.Before(time.Now()) {
+		errs["valid_until"] = append(errs["valid_until"], "must not be in the past")
+	}
+	if validFrom != nil && !validFrom.IsZero() && !validFrom.Before(validUntil) {
+		errs["valid_until"] = append(errs["valid_until"], "must be after valid_from")
+	}
+}
+
+const (
 	MethodQR      = "QR"
 	MethodPreAuth = "PRE_AUTH"
+)
+
+const (
+	RoleResident = "RESIDENT"
+	RoleGuard    = "GUARD"
+	RoleAdmin    = "ADMIN"
 )
 
 var ErrAccessGrantNotFound = errors.New("access grant not found or expired")
@@ -68,6 +102,7 @@ type AccessGrant struct {
 	UsedAt          *time.Time `json:"used_at,omitempty" db:"used_at"`
 	UsedBy          *uuid.UUID `json:"used_by,omitempty" db:"used_by"`
 	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
+	SingleUse       bool       `json:"single_use" db:"single_use"`
 }
 
 type CreateAccessGrantRequest struct {
@@ -95,9 +130,17 @@ func (r CreateAccessGrantRequest) validate() map[string][]string {
 	if r.VisitorName == "" {
 		errs["visitor_name"] = []string{"required"}
 	}
+	checkMaxLen(errs, "visitor_name", r.VisitorName, maxNameLength)
+	if r.VisitorIDNumber != nil {
+		checkMaxLen(errs, "visitor_id_number", *r.VisitorIDNumber, maxIDNumberLength)
+	}
+	if r.Details != nil {
+		checkMaxLen(errs, "details", *r.Details, maxDetailsLength)
+	}
 	if r.ValidUntil.IsZero() {
 		errs["valid_until"] = []string{"required"}
 	}
+	validateDateWindow(errs, r.ValidFrom, r.ValidUntil)
 	return errs
 }
 
@@ -113,9 +156,13 @@ func (r CreateQRCodeRequest) validate() map[string][]string {
 	if r.UnitID == uuid.Nil {
 		errs["unit_id"] = []string{"required"}
 	}
+	if r.VisitorName != nil {
+		checkMaxLen(errs, "visitor_name", *r.VisitorName, maxNameLength)
+	}
 	if r.ValidUntil.IsZero() {
 		errs["valid_until"] = []string{"required"}
 	}
+	validateDateWindow(errs, r.ValidFrom, r.ValidUntil)
 	return errs
 }
 
@@ -140,6 +187,7 @@ func (r CreateQRBatchRequest) validate() map[string][]string {
 	if r.ValidUntil.IsZero() {
 		errs["valid_until"] = []string{"required"}
 	}
+	validateDateWindow(errs, &r.ValidFrom, r.ValidUntil)
 	return errs
 }
 
@@ -161,8 +209,13 @@ func (r CreatePreAuthRequest) validate() map[string][]string {
 	if r.VisitorName == "" {
 		errs["visitor_name"] = []string{"required"}
 	}
+	checkMaxLen(errs, "visitor_name", r.VisitorName, maxNameLength)
 	if r.VisitorIDNumber == "" {
 		errs["visitor_id_number"] = []string{"required"}
+	}
+	checkMaxLen(errs, "visitor_id_number", r.VisitorIDNumber, maxIDNumberLength)
+	if r.Details != nil {
+		checkMaxLen(errs, "details", *r.Details, maxDetailsLength)
 	}
 	if !validVisitorTypes[r.VisitorType] {
 		errs["visitor_type"] = []string{"must be one of DELIVERY, VISITOR, SERVICE, CONTRACTOR, GUEST"}
@@ -173,6 +226,7 @@ func (r CreatePreAuthRequest) validate() map[string][]string {
 	if r.ValidUntil.IsZero() {
 		errs["valid_until"] = []string{"required"}
 	}
+	validateDateWindow(errs, &r.ValidFrom, r.ValidUntil)
 	return errs
 }
 

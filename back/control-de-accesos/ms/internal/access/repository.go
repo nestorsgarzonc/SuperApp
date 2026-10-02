@@ -19,6 +19,9 @@ type Repository interface {
 	GetComplexAccessGrants(ctx context.Context, complexID uuid.UUID, method *string, status *string) ([]*AccessGrant, error)
 	GetActiveAccessGrantsByVisitorID(ctx context.Context, complexID uuid.UUID, visitorIDNumber string) ([]*AccessGrant, error)
 	CancelAccessGrant(ctx context.Context, id uuid.UUID) error
+	// TryMarkGrantUsed atomically transitions an ACTIVE grant to USED.
+	// Returns false if another caller already consumed it first.
+	TryMarkGrantUsed(ctx context.Context, id uuid.UUID, usedBy uuid.UUID) (bool, error)
 }
 
 type PostgresRepository struct {
@@ -31,7 +34,7 @@ func NewPostgresRepository(db *sql.DB) *PostgresRepository {
 
 const accessGrantColumns = `id, complex_id, unit_id, created_by, method, visitor_type, visitor_name,
 	       visitor_id_number, qr_code_hash, details, status, valid_from, valid_until,
-	       used_at, used_by, created_at`
+	       used_at, used_by, created_at, single_use`
 
 func scanAccessGrant(row interface{ Scan(dest ...any) error }, grant *AccessGrant) error {
 	return row.Scan(
@@ -51,6 +54,7 @@ func scanAccessGrant(row interface{ Scan(dest ...any) error }, grant *AccessGran
 		&grant.UsedAt,
 		&grant.UsedBy,
 		&grant.CreatedAt,
+		&grant.SingleUse,
 	)
 }
 
@@ -58,9 +62,9 @@ func (r *PostgresRepository) CreateAccessGrant(ctx context.Context, complexID uu
 	query := `
 		INSERT INTO access_grants (
 			id, complex_id, unit_id, created_by, method, visitor_type, visitor_name,
-			visitor_id_number, qr_code_hash, details, status, valid_from, valid_until
+			visitor_id_number, qr_code_hash, details, status, valid_from, valid_until, single_use
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING ` + accessGrantColumns
 
 	validFrom := time.Now()
@@ -78,10 +82,12 @@ func (r *PostgresRepository) CreateAccessGrant(ctx context.Context, complexID uu
 	}
 
 	var grant AccessGrant
+	// Every grant is single-use: consumed on first successful validation
+	// (see service.ValidateAccess / TryMarkGrantUsed below).
 	row := r.db.QueryRowContext(
 		ctx, query,
 		grantID, complexID, req.UnitID, createdBy, req.Method, req.VisitorType, req.VisitorName,
-		req.VisitorIDNumber, qrHash, req.Details, StatusActive, validFrom, req.ValidUntil,
+		req.VisitorIDNumber, qrHash, req.Details, StatusActive, validFrom, req.ValidUntil, true,
 	)
 	if err := scanAccessGrant(row, &grant); err != nil {
 		return nil, fmt.Errorf("failed to create access grant: %w", err)
@@ -204,4 +210,21 @@ func (r *PostgresRepository) CancelAccessGrant(ctx context.Context, id uuid.UUID
 	}
 
 	return nil
+}
+
+func (r *PostgresRepository) TryMarkGrantUsed(ctx context.Context, id uuid.UUID, usedBy uuid.UUID) (bool, error) {
+	query := `
+		UPDATE access_grants
+		SET status = $2, used_at = NOW(), used_by = $3
+		WHERE id = $1 AND status = $4
+	`
+	res, err := r.db.ExecContext(ctx, query, id, StatusUsed, usedBy, StatusActive)
+	if err != nil {
+		return false, fmt.Errorf("failed to mark grant used: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to read rows affected: %w", err)
+	}
+	return rows > 0, nil
 }

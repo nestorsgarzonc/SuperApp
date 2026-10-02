@@ -13,8 +13,21 @@ import (
 	"github.com/google/uuid"
 	qrcode "github.com/skip2/go-qrcode"
 
+	"controldeaccesos/internal/audit"
 	"controldeaccesos/internal/notifier"
 	authmw "controldeaccesos/internal/platform/middleware"
+)
+
+// qrMaxValidity caps how long a freshly generated QR can stay valid,
+// regardless of what the creator requested (FR-05-B). PRE_AUTH grants are
+// not subject to this cap.
+const qrMaxValidity = 12 * time.Hour
+
+const (
+	ActionCreateGrant   = "CREATE_ACCESS_GRANT"
+	ActionCancelGrant   = "CANCEL_ACCESS_GRANT"
+	ActionValidateGrant = "VALIDATE_ACCESS_GRANT"
+	ActionGetGrant      = "GET_ACCESS_GRANT"
 )
 
 type Service interface {
@@ -50,20 +63,27 @@ type Notifier interface {
 	Notify(ctx context.Context, event notifier.Event)
 }
 
+// Auditor persists an append-only audit trail entry.
+type Auditor interface {
+	Write(ctx context.Context, e audit.Entry) error
+}
+
 type service struct {
 	repo        Repository
 	directory   DirectoryRepository
 	unitChecker UnitMembershipChecker
 	notifier    Notifier
+	auditor     Auditor
 	logger      *slog.Logger
 }
 
-func NewService(repo Repository, directory DirectoryRepository, unitChecker UnitMembershipChecker, notif Notifier, logger *slog.Logger) Service {
+func NewService(repo Repository, directory DirectoryRepository, unitChecker UnitMembershipChecker, notif Notifier, auditor Auditor, logger *slog.Logger) Service {
 	return &service{
 		repo:        repo,
 		directory:   directory,
 		unitChecker: unitChecker,
 		notifier:    notif,
+		auditor:     auditor,
 		logger:      logger,
 	}
 }
@@ -98,6 +118,29 @@ func (s *service) notify(ctx context.Context, eventType string, grant *AccessGra
 	})
 }
 
+// audit writes a best-effort append-only trail entry. A nil auditor (e.g.
+// unit tests) or a write failure never affects the caller — it's only
+// logged.
+func (s *service) audit(ctx context.Context, actorID, complexID *uuid.UUID, resourceType string, resourceID *uuid.UUID, action, result, reason string) {
+	if s.auditor == nil {
+		return
+	}
+	entry := audit.Entry{
+		ActorID:       actorID,
+		ComplexID:     complexID,
+		ResourceType:  resourceType,
+		ResourceID:    resourceID,
+		Action:        action,
+		Result:        result,
+		Reason:        reason,
+		IPAddress:     authmw.GetRequestIP(ctx),
+		CorrelationID: authmw.GetCorrelationID(ctx),
+	}
+	if err := s.auditor.Write(ctx, entry); err != nil {
+		s.logger.Error("audit write failed", "error", err, "action", action)
+	}
+}
+
 func (s *service) validateUnitBelongsToComplex(ctx context.Context, complexID, unitID uuid.UUID) error {
 	unitComplexID, found, err := s.directory.GetUnitComplexID(ctx, unitID)
 	if err != nil {
@@ -112,11 +155,32 @@ func (s *service) validateUnitBelongsToComplex(ctx context.Context, complexID, u
 	return nil
 }
 
-func (s *service) CreateQRCode(ctx context.Context, complexID uuid.UUID, createdBy uuid.UUID, req CreateQRCodeRequest) (*AccessGrantResponse, error) {
-	if err := s.validateUnitBelongsToComplex(ctx, complexID, req.UnitID); err != nil {
-		return nil, err
+// checkUnitOwnership runs both IDOR guards (unit belongs to the caller's
+// complex, caller belongs to the unit) and audits a DENIED entry on failure.
+func (s *service) checkUnitOwnership(ctx context.Context, action string, actorID, complexID, unitID uuid.UUID) error {
+	if err := s.validateUnitBelongsToComplex(ctx, complexID, unitID); err != nil {
+		s.audit(ctx, &actorID, &complexID, "unit", &unitID, action, audit.ResultDenied, err.Error())
+		return err
 	}
-	if err := s.assertUnitAccess(ctx, createdBy, req.UnitID); err != nil {
+	if err := s.assertUnitAccess(ctx, actorID, unitID); err != nil {
+		s.audit(ctx, &actorID, &complexID, "unit", &unitID, action, audit.ResultDenied, err.Error())
+		return err
+	}
+	return nil
+}
+
+// clampQRExpiry enforces qrMaxValidity: whichever of the creator's requested
+// expiry or the 12h cap comes first wins.
+func clampQRExpiry(validUntil time.Time) time.Time {
+	cap := time.Now().Add(qrMaxValidity)
+	if validUntil.After(cap) {
+		return cap
+	}
+	return validUntil
+}
+
+func (s *service) CreateQRCode(ctx context.Context, complexID uuid.UUID, createdBy uuid.UUID, req CreateQRCodeRequest) (*AccessGrantResponse, error) {
+	if err := s.checkUnitOwnership(ctx, ActionCreateGrant, createdBy, complexID, req.UnitID); err != nil {
 		return nil, err
 	}
 	visitorName := "Guest"
@@ -129,12 +193,13 @@ func (s *service) CreateQRCode(ctx context.Context, complexID uuid.UUID, created
 		VisitorType: VisitorTypeVisitor,
 		VisitorName: visitorName,
 		ValidFrom:   req.ValidFrom,
-		ValidUntil:  req.ValidUntil,
+		ValidUntil:  clampQRExpiry(req.ValidUntil),
 	}
 	grant, err := s.repo.CreateAccessGrant(ctx, complexID, createReq, createdBy)
 	if err != nil {
 		return nil, err
 	}
+	s.audit(ctx, &createdBy, &complexID, "access_grant", &grant.ID, ActionCreateGrant, audit.ResultAllowed, "")
 
 	var qrCodeURL string
 	if grant.QRCodeHash != nil {
@@ -184,13 +249,11 @@ func (s *service) generateQRDataURL(content string) (string, error) {
 }
 
 func (s *service) CreateQRBatch(ctx context.Context, complexID uuid.UUID, createdBy uuid.UUID, req CreateQRBatchRequest) ([]*AccessGrant, error) {
-	if err := s.validateUnitBelongsToComplex(ctx, complexID, req.UnitID); err != nil {
-		return nil, err
-	}
-	if err := s.assertUnitAccess(ctx, createdBy, req.UnitID); err != nil {
+	if err := s.checkUnitOwnership(ctx, ActionCreateGrant, createdBy, complexID, req.UnitID); err != nil {
 		return nil, err
 	}
 	grants := make([]*AccessGrant, 0, req.Quantity)
+	clampedValidUntil := clampQRExpiry(req.ValidUntil)
 
 	for i := 0; i < req.Quantity; i++ {
 		createReq := CreateAccessGrantRequest{
@@ -198,7 +261,7 @@ func (s *service) CreateQRBatch(ctx context.Context, complexID uuid.UUID, create
 			Method:      MethodQR,
 			VisitorType: VisitorTypeVisitor,
 			ValidFrom:   &req.ValidFrom,
-			ValidUntil:  req.ValidUntil,
+			ValidUntil:  clampedValidUntil,
 		}
 		grant, err := s.repo.CreateAccessGrant(ctx, complexID, createReq, createdBy)
 		if err != nil {
@@ -208,6 +271,7 @@ func (s *service) CreateQRBatch(ctx context.Context, complexID uuid.UUID, create
 	}
 
 	if len(grants) > 0 {
+		s.audit(ctx, &createdBy, &complexID, "access_grant", nil, ActionCreateGrant, audit.ResultAllowed, fmt.Sprintf("batch of %d", len(grants)))
 		s.notify(ctx, notifier.EventQRCreated, grants[len(grants)-1])
 	}
 
@@ -220,10 +284,7 @@ func (s *service) GetQRCodes(ctx context.Context, complexID uuid.UUID) ([]*Acces
 }
 
 func (s *service) CreatePreAuth(ctx context.Context, complexID uuid.UUID, createdBy uuid.UUID, req CreatePreAuthRequest) (*AccessGrant, error) {
-	if err := s.validateUnitBelongsToComplex(ctx, complexID, req.UnitID); err != nil {
-		return nil, err
-	}
-	if err := s.assertUnitAccess(ctx, createdBy, req.UnitID); err != nil {
+	if err := s.checkUnitOwnership(ctx, ActionCreateGrant, createdBy, complexID, req.UnitID); err != nil {
 		return nil, err
 	}
 	createReq := CreateAccessGrantRequest{
@@ -240,6 +301,7 @@ func (s *service) CreatePreAuth(ctx context.Context, complexID uuid.UUID, create
 	if err != nil {
 		return nil, err
 	}
+	s.audit(ctx, &createdBy, &complexID, "access_grant", &grant.ID, ActionCreateGrant, audit.ResultAllowed, "")
 	s.notify(ctx, notifier.EventPreAuthCreated, grant)
 	return grant, nil
 }
@@ -254,16 +316,17 @@ func (s *service) GetPreAuthorizations(ctx context.Context, complexID uuid.UUID)
 // alone is not enough, since any complex member could otherwise mint a grant
 // into a neighbor's unit.
 func (s *service) CreateAccessGrant(ctx context.Context, complexID uuid.UUID, createdBy uuid.UUID, req CreateAccessGrantRequest) (*AccessGrant, error) {
-	if err := s.validateUnitBelongsToComplex(ctx, complexID, req.UnitID); err != nil {
+	if err := s.checkUnitOwnership(ctx, ActionCreateGrant, createdBy, complexID, req.UnitID); err != nil {
 		return nil, err
 	}
-	if err := s.assertUnitAccess(ctx, createdBy, req.UnitID); err != nil {
-		return nil, err
+	if req.Method == MethodQR {
+		req.ValidUntil = clampQRExpiry(req.ValidUntil)
 	}
 	grant, err := s.repo.CreateAccessGrant(ctx, complexID, req, createdBy)
 	if err != nil {
 		return nil, err
 	}
+	s.audit(ctx, &createdBy, &complexID, "access_grant", &grant.ID, ActionCreateGrant, audit.ResultAllowed, "")
 	s.notify(ctx, notifier.EventGrantCreated, grant)
 	return grant, nil
 }
@@ -278,9 +341,11 @@ func (s *service) GetAccessGrant(ctx context.Context, complexID uuid.UUID, userI
 		return nil, err
 	}
 	if grant.ComplexID != complexID {
+		s.audit(ctx, &userID, &complexID, "access_grant", &id, ActionGetGrant, audit.ResultDenied, "cross-tenant access attempt")
 		return nil, ErrUnitAccessDenied
 	}
 	if err := s.assertUnitAccess(ctx, userID, grant.UnitID); err != nil {
+		s.audit(ctx, &userID, &complexID, "access_grant", &id, ActionGetGrant, audit.ResultDenied, err.Error())
 		return nil, err
 	}
 	return grant, nil
@@ -295,40 +360,56 @@ func (s *service) CancelAccessGrant(ctx context.Context, complexID uuid.UUID, us
 		return err
 	}
 	if grant.ComplexID != complexID {
+		s.audit(ctx, &userID, &complexID, "access_grant", &id, ActionCancelGrant, audit.ResultDenied, "cross-tenant access attempt")
 		return ErrUnitAccessDenied
 	}
 	if err := s.assertUnitAccess(ctx, userID, grant.UnitID); err != nil {
+		s.audit(ctx, &userID, &complexID, "access_grant", &id, ActionCancelGrant, audit.ResultDenied, err.Error())
 		return err
 	}
 	if err := s.repo.CancelAccessGrant(ctx, id); err != nil {
 		return err
 	}
+	s.audit(ctx, &userID, &complexID, "access_grant", &id, ActionCancelGrant, audit.ResultAllowed, "")
 	s.notify(ctx, notifier.EventGrantCancelled, grant)
 	return nil
 }
 
 func (s *service) ValidateAccess(ctx context.Context, req ValidateAccessRequest) (*ValidateAccessResponse, error) {
+	var actorID *uuid.UUID
+	if id, err := authmw.GetUserIDAsUUID(ctx); err == nil {
+		actorID = &id
+	}
+
 	complexID, err := authmw.GetComplexIDAsUUID(ctx)
 	if err != nil {
+		s.audit(ctx, actorID, nil, "access_grant", nil, ActionValidateGrant, audit.ResultDenied, err.Error())
 		return nil, ErrComplexIDRequired
 	}
 	req.ComplexID = complexID
+
+	deny := func(reason string) {
+		s.audit(ctx, actorID, &complexID, "access_grant", nil, ActionValidateGrant, audit.ResultDenied, reason)
+	}
 
 	var grant *AccessGrant
 
 	switch req.Method {
 	case MethodQR:
 		if req.QRCode == nil || *req.QRCode == "" {
+			deny(ErrQRCodeRequired.Error())
 			return nil, ErrQRCodeRequired
 		}
 		grant, err = s.repo.GetAccessGrantByQRHash(ctx, *req.QRCode)
 		if err != nil {
 			if errors.Is(err, ErrAccessGrantNotFound) {
+				deny(err.Error())
 				return &ValidateAccessResponse{Valid: false, Message: err.Error()}, nil
 			}
 			return nil, err
 		}
 		if grant.ComplexID != req.ComplexID {
+			deny("QR belongs to a different complex")
 			return &ValidateAccessResponse{
 				Valid:   false,
 				Message: "No active authorization found for this complex",
@@ -336,6 +417,7 @@ func (s *service) ValidateAccess(ctx context.Context, req ValidateAccessRequest)
 		}
 	case MethodPreAuth:
 		if req.VisitorIDNumber == nil || *req.VisitorIDNumber == "" {
+			deny(ErrVisitorIDRequired.Error())
 			return nil, ErrVisitorIDRequired
 		}
 		grants, err := s.repo.GetActiveAccessGrantsByVisitorID(ctx, req.ComplexID, *req.VisitorIDNumber)
@@ -343,6 +425,7 @@ func (s *service) ValidateAccess(ctx context.Context, req ValidateAccessRequest)
 			return nil, err
 		}
 		if len(grants) == 0 {
+			deny("no active authorization for visitor ID")
 			return &ValidateAccessResponse{
 				Valid:   false,
 				Message: "No active authorization found for this visitor",
@@ -350,23 +433,46 @@ func (s *service) ValidateAccess(ctx context.Context, req ValidateAccessRequest)
 		}
 		grant = grants[0] // Use first active grant
 	default:
+		deny(fmt.Sprintf("unsupported method %q", req.Method))
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedMethod, req.Method)
 	}
 
 	now := time.Now()
 	if grant.Status != StatusActive {
+		s.audit(ctx, actorID, &complexID, "access_grant", &grant.ID, ActionValidateGrant, audit.ResultDenied, "status "+grant.Status)
 		return &ValidateAccessResponse{
 			Valid:   false,
 			Message: fmt.Sprintf("Access grant is %s", grant.Status),
 		}, nil
 	}
 	if grant.ValidFrom != nil && now.Before(*grant.ValidFrom) {
+		s.audit(ctx, actorID, &complexID, "access_grant", &grant.ID, ActionValidateGrant, audit.ResultDenied, "not yet valid")
 		return &ValidateAccessResponse{Valid: false, Message: "Access grant is not yet valid"}, nil
 	}
 	if grant.ValidUntil != nil && now.After(*grant.ValidUntil) {
+		s.audit(ctx, actorID, &complexID, "access_grant", &grant.ID, ActionValidateGrant, audit.ResultDenied, "expired")
 		return &ValidateAccessResponse{Valid: false, Message: "Access grant has expired"}, nil
 	}
 
+	// Consumption is the server's decision, not the client's: every grant is
+	// single-use, consumed atomically on its first successful validation —
+	// so a QR/PRE_AUTH scanned twice is accepted exactly once.
+	if grant.SingleUse {
+		var usedBy uuid.UUID
+		if actorID != nil {
+			usedBy = *actorID
+		}
+		won, err := s.repo.TryMarkGrantUsed(ctx, grant.ID, usedBy)
+		if err != nil {
+			return nil, fmt.Errorf("failed to mark grant as used: %w", err)
+		}
+		if !won {
+			s.audit(ctx, actorID, &complexID, "access_grant", &grant.ID, ActionValidateGrant, audit.ResultDenied, "already used")
+			return &ValidateAccessResponse{Valid: false, Message: "Access grant has already been used"}, nil
+		}
+	}
+
+	s.audit(ctx, actorID, &complexID, "access_grant", &grant.ID, ActionValidateGrant, audit.ResultAllowed, "")
 	s.notify(ctx, notifier.EventGrantValidated, grant)
 
 	return &ValidateAccessResponse{

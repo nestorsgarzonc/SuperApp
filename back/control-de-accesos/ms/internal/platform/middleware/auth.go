@@ -220,6 +220,31 @@ func GetComplexIDAsUUID(ctx context.Context) (uuid.UUID, error) {
 	return uuid.Parse(complexID)
 }
 
+func GetUserRole(ctx context.Context) string {
+	if role, ok := ctx.Value(UserRoleKey).(string); ok {
+		return role
+	}
+	return ""
+}
+
+// RequireRoleMiddleware allows the request only if the JWT's role claim is
+// one of allowedRoles. Must run after ApplyEnvironmentAuth so the role is
+// already in context.
+func RequireRoleMiddleware(allowedRoles ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			role := GetUserRole(r.Context())
+			for _, allowed := range allowedRoles {
+				if role == allowed {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			respondWithError(w, http.StatusForbidden, "your role does not have access to this operation")
+		})
+	}
+}
+
 func respondWithError(w http.ResponseWriter, code int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
