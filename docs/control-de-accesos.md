@@ -2,9 +2,7 @@
 
 Microservicio de **gestión de acceso** del residencial: códigos QR,
 pre-autorizaciones y validación de visitantes en portería. Extraído del
-monolito `residential-superapp` — se dejó **fuera** todo lo de citofonía /
-llamadas VoIP (`intercom`, `call_logs`, LiveKit, notificaciones push), que
-pertenece a otro feature.
+monolito `residential-superapp`.
 
 Ver [`architecture.md`](architecture.md) para cómo encaja en el resto de
 SuperApp. Código en [`back/control-de-accesos/`](../back/control-de-accesos/).
