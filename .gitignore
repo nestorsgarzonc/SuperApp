@@ -1,0 +1,5 @@
+# Local secrets — never commit real values, only *.example templates.
+.env
+.env.local
+*/.env
+*/*/.env

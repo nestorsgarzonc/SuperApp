@@ -41,8 +41,10 @@ flowchart TB
   GW --> MNO
 
   GW -. "valida token" .-> MAU
-  MCA -. "evento de acceso" .-> MNO
-  MAU -. "evento de cuenta" .-> MNO
+  BUS[["Redis Stream<br/>notifications.requested"]]
+  MCA -. "evento de acceso" .-> BUS
+  MAU -. "evento de cuenta" .-> BUS
+  BUS -. "consume" .-> MNO
 
   INF["infra/ — IaC · despliegue"]
   INF -.-> front
@@ -74,7 +76,11 @@ SuperApp/
 │       └── shared/              # código común entre módulos
 ├── infra/
 └── docs/
-    └── architecture.md
+    ├── architecture.md
+    ├── api-gateway.md       # contrato del gateway (por implementar)
+    ├── control-de-accesos.md
+    ├── events.md            # Redis Streams: convenciones y esquemas
+    └── internal-apis.md     # endpoints /internal/* entre servicios
 ```
 
 ## Componentes
@@ -84,8 +90,8 @@ SuperApp/
 | `front` | Aplicación única; un módulo de UI por feature | `api-gateway` |
 | `back/api-gateway` | Punto de entrada único: enrutamiento, validación de token, rate limiting. Sin base de datos. | `auth` |
 | `back/auth` | Identidad, credenciales, emisión y validación de tokens | — |
-| `back/control-de-accesos` | Permisos, roles y registro de entradas/salidas | `auth` |
-| `back/notificaciones` | Envío y bitácora de notificaciones (email, push, SMS) | `auth`, `control-de-accesos` |
+| [`back/control-de-accesos`](control-de-accesos.md) | Permisos, roles y registro de entradas/salidas | `auth` |
+| `back/notificaciones` | Entrega de notificaciones: consume eventos de Redis, bandeja, push (FCM), preferencias y tokens de dispositivos. Ver `back/notificaciones/README.md` | Redis |
 
 ## Convenciones
 
@@ -95,3 +101,11 @@ SuperApp/
 - `api-gateway` no tiene `db/`: es sin estado por diseño.
 - El frontend nunca llama a un `ms` directamente, siempre vía `api-gateway`.
 - Las carpetas se mantienen en git con `.gitkeep` hasta que tengan código.
+- Los endpoints entre servicios viven bajo `/internal/*`, nunca se exponen por el
+  gateway y se autentican con `X-Internal-Secret` (ver `internal-apis.md`).
+- Los `ms` se comunican de forma asíncrona por Redis Streams (un stream por
+  consumidor, p. ej. `notifications.requested`). Los eventos llevan un
+  `event_id` y el consumidor es idempotente (ver `events.md`).
+- Los `ms` confían en los headers de identidad (`X-User-ID`, `X-Complex-ID`,
+  `X-Complex-Role`) que inyecta el `api-gateway`, protegidos con
+  `X-Gateway-Secret` (ver `api-gateway.md`).
