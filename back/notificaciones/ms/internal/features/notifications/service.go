@@ -18,7 +18,7 @@ import (
 )
 
 type Service interface {
-	GetUserNotifications(ctx context.Context, complexID, userID uuid.UUID, unreadOnly bool, limit int) ([]*Notification, error)
+	GetUserNotifications(ctx context.Context, complexID, userID uuid.UUID, q InboxQuery) ([]*Notification, error)
 	CountUnread(ctx context.Context, complexID, userID uuid.UUID) (int, error)
 	MarkAsRead(ctx context.Context, id, complexID, userID uuid.UUID) error
 	MarkAllAsRead(ctx context.Context, complexID, userID uuid.UUID) (int64, error)
@@ -34,7 +34,7 @@ type TokenStore interface {
 }
 
 type DeliveryChecker interface {
-	FilterRecipients(ctx context.Context, userIDs []uuid.UUID, category string, now time.Time) []uuid.UUID
+	FilterRecipients(ctx context.Context, userIDs []uuid.UUID, category string) []uuid.UUID
 }
 
 const (
@@ -68,13 +68,25 @@ func NewService(repo Repository, tokens TokenStore, pusher push.Sender, checker 
 
 func (s *service) Wait() { s.pushes.Wait() }
 
-func (s *service) GetUserNotifications(ctx context.Context, complexID, userID uuid.UUID, unreadOnly bool, limit int) ([]*Notification, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 50
+func (s *service) GetUserNotifications(ctx context.Context, complexID, userID uuid.UUID, q InboxQuery) ([]*Notification, error) {
+	if q.Limit <= 0 || q.Limit > 200 {
+		q.Limit = 50
 	}
-	out, err := s.repo.GetUserNotifications(ctx, complexID, userID, unreadOnly, limit)
+	var types []string
+	for _, g := range q.Groups {
+		if !preferences.IsGroup(g) {
+			return nil, apperr.Field("group", "Unknown group "+g)
+		}
+	}
+	if len(q.Groups) > 0 {
+		types = preferences.CategoriesOf(q.Groups)
+	}
+	out, err := s.repo.GetUserNotifications(ctx, complexID, userID, q.UnreadOnly, types, q.Limit)
 	if err != nil {
 		return nil, apperr.Internal(err)
+	}
+	for _, n := range out {
+		n.Group = preferences.GroupOf(n.Type)
 	}
 	return out, nil
 }
@@ -111,7 +123,7 @@ func (s *service) Dispatch(ctx context.Context, in DispatchInput) error {
 		return err
 	}
 	if s.checker != nil {
-		nn.UserIDs = s.checker.FilterRecipients(ctx, nn.UserIDs, nn.Type, s.now())
+		nn.UserIDs = s.checker.FilterRecipients(ctx, nn.UserIDs, nn.Type)
 	}
 
 	created, err := s.repo.CreateNotifications(ctx, nn)

@@ -52,22 +52,24 @@ notificar a usuarios.
 
 ### Categorías
 
-| Categoría | Crítica | Uso típico (productor) |
-|---|---|---|
-| `SOS`, `SECURITY`, `EMERGENCY` | **sí** | pánico e incidentes (control-de-accesos) |
-| `CALL` | **sí** | citofonía: alguien llama desde la portería |
-| `ACCESS`, `VISITOR` | no | entradas, salidas y visitantes (control-de-accesos) |
-| `ACCOUNT` | no | eventos de cuenta: bienvenida, cambio de contraseña (auth) |
-| `PACKAGE` | no | paquetes en portería |
-| `ANNOUNCEMENT`, `COMMUNITY`, `EVENT` | no | comunicados y comunidad (comunidad) |
-| `PAYMENT` | no | cuotas, pagos y cartera (gestión financiera) |
-| `ASSEMBLY` | no | convocatorias, votaciones y actas (asambleas) |
-| `MAINTENANCE`, `GENERAL` | no | avisos generales del conjunto (comunidad) |
+Cada categoría pertenece a un **grupo**. El grupo es lo que la app muestra
+(etiqueta y filtros del centro de notificaciones) y lo que el usuario puede
+silenciar en sus preferencias.
 
-- Las **críticas** ignoran las preferencias del usuario (mute y horas de
-  silencio) y se envían con prioridad alta, sin esperar detrás de envíos masivos.
-- Las **no críticas** respetan las preferencias. Las horas de silencio se evalúan
-  en la zona horaria del usuario (por defecto `America/Bogota`).
+| Grupo | Categorías | El usuario puede silenciarlo | Productor |
+|---|---|---|---|
+| `ACCESS_CONTROL` (Control de acceso) | `SOS`*, `SECURITY`*, `EMERGENCY`*, `ACCESS`, `VISITOR`, `PACKAGE` | no (obligatorio) | control de acceso |
+| `INTERCOM` (Citofonía) | `CALL`* | no (obligatorio) | citofonía |
+| `COMMUNITY` (Comunicados) | `ANNOUNCEMENT`, `COMMUNITY`, `EVENT`, `MAINTENANCE` | sí | comunidad |
+| `RESERVATIONS` (Reservas) | `RESERVATION` | sí | reservas / amenidades |
+| `ASSEMBLIES` (Asambleas) | `ASSEMBLY` | sí | asambleas |
+| `VOTES` (Votaciones) | `VOTE` | sí | asambleas |
+| `SYSTEM` (Sistema) | `ACCOUNT`, `PAYMENT`, `GENERAL` | no | auth, gestión financiera |
+
+- \* **Críticas:** push con prioridad alta y con su propio cupo de envío, así
+  nunca esperan detrás de un envío masivo.
+- Un evento de un grupo silenciado no llega a la bandeja ni al push de ese
+  usuario.
 - Una categoría desconocida manda el evento a la DLQ. Para añadir una categoría,
   agrégala primero en `back/notificaciones/ms/internal/features/preferences/models.go`.
 

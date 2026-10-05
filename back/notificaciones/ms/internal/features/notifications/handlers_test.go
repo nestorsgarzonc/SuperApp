@@ -24,11 +24,12 @@ type fakeService struct {
 	gotComplex, gotUser uuid.UUID
 	gotLimit            int
 	gotUnread           bool
+	gotGroups           []string
 	err                 error
 }
 
-func (f *fakeService) GetUserNotifications(_ context.Context, complexID, userID uuid.UUID, unreadOnly bool, limit int) ([]*Notification, error) {
-	f.gotComplex, f.gotUser, f.gotUnread, f.gotLimit = complexID, userID, unreadOnly, limit
+func (f *fakeService) GetUserNotifications(_ context.Context, complexID, userID uuid.UUID, q InboxQuery) ([]*Notification, error) {
+	f.gotComplex, f.gotUser, f.gotUnread, f.gotLimit, f.gotGroups = complexID, userID, q.UnreadOnly, q.Limit, q.Groups
 	return []*Notification{}, f.err
 }
 
@@ -68,7 +69,7 @@ func TestHandlers_InboxUsesGatewayIdentity(t *testing.T) {
 	svc := &fakeService{}
 	c := caller{user: uuid.New(), complex: uuid.New()}
 
-	rec, body := c.do(t, newRouter(svc), http.MethodGet, "/users/me/notifications?unread=true&limit=10", "")
+	rec, body := c.do(t, newRouter(svc), http.MethodGet, "/users/me/notifications?unread=true&limit=10&group=ASSEMBLIES,VOTES", "")
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, true, body["success"])
@@ -76,6 +77,7 @@ func TestHandlers_InboxUsesGatewayIdentity(t *testing.T) {
 	assert.Equal(t, c.complex, svc.gotComplex)
 	assert.True(t, svc.gotUnread)
 	assert.Equal(t, 10, svc.gotLimit)
+	assert.Equal(t, []string{"ASSEMBLIES", "VOTES"}, svc.gotGroups)
 }
 
 func TestHandlers_InboxRequiresComplex(t *testing.T) {

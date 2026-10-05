@@ -1,90 +1,137 @@
 package preferences
 
-import (
-	"slices"
-	"time"
-
-	"github.com/google/uuid"
-)
+import "slices"
 
 const (
 	CategorySOS       = "SOS"
 	CategorySecurity  = "SECURITY"
 	CategoryEmergency = "EMERGENCY"
-	CategoryCall      = "CALL"
+	CategoryAccess    = "ACCESS"
+	CategoryVisitor   = "VISITOR"
+	CategoryPackage   = "PACKAGE"
 
-	CategoryGeneral      = "GENERAL"
-	CategoryPackage      = "PACKAGE"
+	CategoryCall = "CALL"
+
 	CategoryAnnouncement = "ANNOUNCEMENT"
 	CategoryCommunity    = "COMMUNITY"
-	CategoryPayment      = "PAYMENT"
-	CategoryAssembly     = "ASSEMBLY"
 	CategoryEvent        = "EVENT"
 	CategoryMaintenance  = "MAINTENANCE"
-	CategoryAccess       = "ACCESS"
-	CategoryVisitor      = "VISITOR"
-	CategoryAccount      = "ACCOUNT"
+
+	CategoryReservation = "RESERVATION"
+	CategoryAssembly    = "ASSEMBLY"
+	CategoryVote        = "VOTE"
+
+	CategoryAccount = "ACCOUNT"
+	CategoryPayment = "PAYMENT"
+	CategoryGeneral = "GENERAL"
 )
 
-var criticalCategories = map[string]struct{}{
-	CategorySOS:       {},
-	CategorySecurity:  {},
-	CategoryEmergency: {},
-	CategoryCall:      {},
+const (
+	GroupAccessControl = "ACCESS_CONTROL"
+	GroupIntercom      = "INTERCOM"
+	GroupCommunity     = "COMMUNITY"
+	GroupReservations  = "RESERVATIONS"
+	GroupAssemblies    = "ASSEMBLIES"
+	GroupVotes         = "VOTES"
+	GroupSystem        = "SYSTEM"
+)
+
+var categoryGroup = map[string]string{
+	CategorySOS:          GroupAccessControl,
+	CategorySecurity:     GroupAccessControl,
+	CategoryEmergency:    GroupAccessControl,
+	CategoryAccess:       GroupAccessControl,
+	CategoryVisitor:      GroupAccessControl,
+	CategoryPackage:      GroupAccessControl,
+	CategoryCall:         GroupIntercom,
+	CategoryAnnouncement: GroupCommunity,
+	CategoryCommunity:    GroupCommunity,
+	CategoryEvent:        GroupCommunity,
+	CategoryMaintenance:  GroupCommunity,
+	CategoryReservation:  GroupReservations,
+	CategoryAssembly:     GroupAssemblies,
+	CategoryVote:         GroupVotes,
+	CategoryAccount:      GroupSystem,
+	CategoryPayment:      GroupSystem,
+	CategoryGeneral:      GroupSystem,
 }
 
-var configurableCategories = []string{
-	CategoryGeneral,
-	CategoryPackage,
-	CategoryAnnouncement,
-	CategoryCommunity,
-	CategoryPayment,
-	CategoryAssembly,
-	CategoryEvent,
-	CategoryMaintenance,
-	CategoryAccess,
-	CategoryVisitor,
-	CategoryAccount,
+var criticalCategories = []string{CategorySOS, CategorySecurity, CategoryEmergency, CategoryCall}
+
+type groupSetting struct {
+	Group  string
+	Locked bool
 }
 
-func IsCritical(category string) bool {
-	_, ok := criticalCategories[category]
-	return ok
+var preferenceGroups = []groupSetting{
+	{GroupAccessControl, true},
+	{GroupIntercom, true},
+	{GroupReservations, false},
+	{GroupCommunity, false},
+	{GroupAssemblies, false},
+	{GroupVotes, false},
 }
 
 func IsKnown(category string) bool {
-	return IsCritical(category) || slices.Contains(configurableCategories, category)
+	_, ok := categoryGroup[category]
+	return ok
 }
 
-func ConfigurableCategories() []string {
-	return slices.Clone(configurableCategories)
+func IsCritical(category string) bool {
+	return slices.Contains(criticalCategories, category)
 }
 
-type Preference struct {
-	ID         uuid.UUID
-	UserID     uuid.UUID
-	ComplexID  *uuid.UUID
-	Category   string
-	Enabled    bool
-	QuietStart *int
-	QuietEnd   *int
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+func GroupOf(category string) string {
+	if g, ok := categoryGroup[category]; ok {
+		return g
+	}
+	return GroupSystem
+}
+
+func IsGroup(group string) bool {
+	for _, g := range categoryGroup {
+		if g == group {
+			return true
+		}
+	}
+	return false
+}
+
+func CategoriesOf(groups []string) []string {
+	var out []string
+	for c, g := range categoryGroup {
+		if slices.Contains(groups, g) {
+			out = append(out, c)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+func isMutable(group string) bool {
+	for _, s := range preferenceGroups {
+		if s.Group == group {
+			return !s.Locked
+		}
+	}
+	return false
 }
 
 type PreferenceItem struct {
-	Category   string `json:"category"`
-	Enabled    bool   `json:"enabled"`
-	QuietStart *int   `json:"quiet_start"`
-	QuietEnd   *int   `json:"quiet_end"`
+	Group   string `json:"group"`
+	Enabled bool   `json:"enabled"`
+	Locked  bool   `json:"locked"`
 }
 
 type GetPreferencesResponse struct {
-	Timezone    string           `json:"timezone"`
 	Preferences []PreferenceItem `json:"preferences"`
 }
 
+type PreferenceUpdate struct {
+	Group   string `json:"group"`
+	Enabled *bool  `json:"enabled"`
+}
+
 type UpdatePreferencesRequest struct {
-	Timezone    *string          `json:"timezone,omitempty"`
-	Preferences []PreferenceItem `json:"preferences"`
+	Preferences []PreferenceUpdate `json:"preferences"`
 }

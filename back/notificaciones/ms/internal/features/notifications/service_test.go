@@ -26,6 +26,7 @@ type fakeRepo struct {
 	processed  map[string]bool
 	deliveries map[uuid.UUID]string
 	createErr  error
+	gotTypes   []string
 }
 
 func newFakeRepo() *fakeRepo {
@@ -46,6 +47,11 @@ func (f *fakeRepo) CreateNotifications(_ context.Context, in NewNotifications) (
 		out = append(out, &Notification{ID: uuid.New(), UserID: id, Type: in.Type, DeliveryStatus: DeliveryStatusInboxOnly})
 	}
 	return out, nil
+}
+
+func (f *fakeRepo) GetUserNotifications(_ context.Context, _, _ uuid.UUID, _ bool, types []string, _ int) ([]*Notification, error) {
+	f.gotTypes = types
+	return []*Notification{{Type: "VOTE"}, {Type: "CALL"}}, nil
 }
 
 func (f *fakeRepo) UpdateDelivery(_ context.Context, id uuid.UUID, status string, _ *time.Time) error {
@@ -90,7 +96,7 @@ func (f *fakePusher) Send(_ context.Context, msg push.Message) (push.Result, err
 
 type mutedChecker map[uuid.UUID]bool
 
-func (m mutedChecker) FilterRecipients(_ context.Context, userIDs []uuid.UUID, _ string, _ time.Time) []uuid.UUID {
+func (m mutedChecker) FilterRecipients(_ context.Context, userIDs []uuid.UUID, _ string) []uuid.UUID {
 	out := []uuid.UUID{}
 	for _, id := range userIDs {
 		if !m[id] {
@@ -301,4 +307,30 @@ func TestDispatch_CriticalPushSkipsTheQueue(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("critical push was blocked behind the non-critical broadcast")
 	}
+}
+
+func TestInbox_FiltersByGroupAndLabelsItems(t *testing.T) {
+	repo := newFakeRepo()
+	svc := newTestService(repo, nil, nil, nil)
+
+	out, err := svc.GetUserNotifications(context.Background(), uuid.New(), uuid.New(), InboxQuery{Groups: []string{"ASSEMBLIES", "VOTES"}})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ASSEMBLY", "VOTE"}, repo.gotTypes)
+	assert.Equal(t, "VOTES", out[0].Group)
+	assert.Equal(t, "INTERCOM", out[1].Group)
+}
+
+func TestInbox_NoGroupMeansNoTypeFilter(t *testing.T) {
+	repo := newFakeRepo()
+	_, err := newTestService(repo, nil, nil, nil).GetUserNotifications(context.Background(), uuid.New(), uuid.New(), InboxQuery{})
+
+	require.NoError(t, err)
+	assert.Nil(t, repo.gotTypes)
+}
+
+func TestInbox_RejectsUnknownGroup(t *testing.T) {
+	_, err := newTestService(newFakeRepo(), nil, nil, nil).GetUserNotifications(context.Background(), uuid.New(), uuid.New(), InboxQuery{Groups: []string{"NOPE"}})
+
+	assert.True(t, apperr.IsValidation(err))
 }

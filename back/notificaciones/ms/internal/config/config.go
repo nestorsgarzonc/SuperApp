@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"time"
 )
 
 type Config struct {
@@ -17,7 +16,6 @@ type Config struct {
 	GatewaySecret       string
 	FirebaseCredentials string
 	FirebaseProjectID   string
-	DefaultTimezone     *time.Location
 }
 
 func Load() (Config, error) {
@@ -34,13 +32,6 @@ func Load() (Config, error) {
 		FirebaseCredentials: os.Getenv("FIREBASE_CREDENTIALS_FILE"),
 		FirebaseProjectID:   os.Getenv("FIREBASE_PROJECT_ID"),
 	}
-
-	tz := getenv("DEFAULT_TIMEZONE", "America/Bogota")
-	loc, err := time.LoadLocation(tz)
-	if err != nil {
-		return c, fmt.Errorf("invalid DEFAULT_TIMEZONE %q: %w", tz, err)
-	}
-	c.DefaultTimezone = loc
 
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required")

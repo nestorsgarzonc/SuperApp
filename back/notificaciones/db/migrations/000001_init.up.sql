@@ -39,29 +39,15 @@ CREATE TABLE processed_events (
     processed_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Preferencias por usuario y categoría (modelo opt-out: sin fila = habilitada).
--- Las categorías críticas (SOS, SECURITY, EMERGENCY, CALL) nunca se guardan
--- aquí; el servicio las rechaza.
+-- Preferencias por grupo (modelo opt-out: sin fila = habilitado). Solo se
+-- guardan los grupos configurables (RESERVATIONS, COMMUNITY, ASSEMBLIES, VOTES);
+-- ACCESS_CONTROL, INTERCOM y SYSTEM siempre se entregan.
 CREATE TABLE notification_preferences (
-    id          uuid        PRIMARY KEY DEFAULT uuidv7(),
-    user_id     uuid        NOT NULL,
-    complex_id  uuid,                                       -- solo auditoría; no es parte de la llave
-    category    text        NOT NULL,
-    enabled     boolean     NOT NULL DEFAULT true,
-    quiet_start integer,                                    -- minuto del día [0, 1440)
-    quiet_end   integer,
-    created_at  timestamptz NOT NULL DEFAULT now(),
-    updated_at  timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT notification_preferences_user_category_key UNIQUE (user_id, category),
-    CONSTRAINT notification_preferences_quiet_start_check CHECK (
-        quiet_start IS NULL OR (quiet_start >= 0 AND quiet_start < 1440)
-    ),
-    CONSTRAINT notification_preferences_quiet_end_check CHECK (
-        quiet_end IS NULL OR (quiet_end >= 0 AND quiet_end < 1440)
-    ),
-    CONSTRAINT notification_preferences_quiet_pair_check CHECK (
-        (quiet_start IS NULL) = (quiet_end IS NULL)
-    )
+    user_id    uuid        NOT NULL,
+    group_name text        NOT NULL,
+    enabled    boolean     NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, group_name)
 );
 
 -- Tokens de push de los dispositivos. En el monolito vivían en identity; aquí

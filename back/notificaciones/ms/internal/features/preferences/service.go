@@ -2,7 +2,6 @@ package preferences
 
 import (
 	"context"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -11,16 +10,15 @@ import (
 
 type Service interface {
 	GetPreferences(ctx context.Context, userID uuid.UUID) (*GetPreferencesResponse, error)
-	UpdatePreferences(ctx context.Context, userID uuid.UUID, complexID *uuid.UUID, req UpdatePreferencesRequest) error
+	UpdatePreferences(ctx context.Context, userID uuid.UUID, req UpdatePreferencesRequest) error
 }
 
 type service struct {
-	repo       Repository
-	defaultLoc *time.Location
+	repo Repository
 }
 
-func NewService(repo Repository, defaultLoc *time.Location) Service {
-	return &service{repo: repo, defaultLoc: defaultLoc}
+func NewService(repo Repository) Service {
+	return &service{repo: repo}
 }
 
 func (s *service) GetPreferences(ctx context.Context, userID uuid.UUID) (*GetPreferencesResponse, error) {
@@ -28,171 +26,62 @@ func (s *service) GetPreferences(ctx context.Context, userID uuid.UUID) (*GetPre
 	if err != nil {
 		return nil, apperr.Internal(err)
 	}
-	timezones, err := s.repo.GetTimezones(ctx, []uuid.UUID{userID})
-	if err != nil {
-		return nil, apperr.Internal(err)
-	}
-	tz, ok := timezones[userID]
-	if !ok {
-		tz = s.defaultLoc.String()
-	}
-
-	byCategory := make(map[string]*Preference, len(stored))
-	for _, p := range stored {
-		byCategory[p.Category] = p
-	}
-
-	cats := ConfigurableCategories()
-	items := make([]PreferenceItem, 0, len(cats))
-	for _, cat := range cats {
-
-		item := PreferenceItem{Category: cat, Enabled: true}
-		if p, ok := byCategory[cat]; ok {
-			item.Enabled = p.Enabled
-			item.QuietStart = p.QuietStart
-			item.QuietEnd = p.QuietEnd
+	items := make([]PreferenceItem, 0, len(preferenceGroups))
+	for _, g := range preferenceGroups {
+		enabled, ok := stored[g.Group]
+		if !ok || g.Locked {
+			enabled = true
 		}
-		items = append(items, item)
+		items = append(items, PreferenceItem{Group: g.Group, Enabled: enabled, Locked: g.Locked})
 	}
-	return &GetPreferencesResponse{Timezone: tz, Preferences: items}, nil
+	return &GetPreferencesResponse{Preferences: items}, nil
 }
 
-func (s *service) UpdatePreferences(ctx context.Context, userID uuid.UUID, complexID *uuid.UUID, req UpdatePreferencesRequest) error {
-	if len(req.Preferences) == 0 && req.Timezone == nil {
-		return apperr.Field("preferences", "At least one preference or a timezone is required")
+func (s *service) UpdatePreferences(ctx context.Context, userID uuid.UUID, req UpdatePreferencesRequest) error {
+	if len(req.Preferences) == 0 {
+		return apperr.Field("preferences", "At least one preference is required")
 	}
-	if req.Timezone != nil {
-		if _, err := time.LoadLocation(*req.Timezone); err != nil || *req.Timezone == "" || *req.Timezone == "Local" {
-			return apperr.Field("timezone", "Timezone must be a valid IANA name, e.g. America/Bogota")
+	enabled := make(map[string]bool, len(req.Preferences))
+	for _, p := range req.Preferences {
+		if !isMutable(p.Group) {
+			if IsGroup(p.Group) {
+				return apperr.Field("group", "Group "+p.Group+" is mandatory and cannot be changed")
+			}
+			return apperr.Field("group", "Unknown group "+p.Group)
 		}
+		if p.Enabled == nil {
+			return apperr.Field("enabled", "Enabled is required")
+		}
+		enabled[p.Group] = *p.Enabled
 	}
-
-	for _, in := range req.Preferences {
-		if in.Category == "" {
-			return apperr.Field("category", "Category is required")
-		}
-
-		if IsCritical(in.Category) {
-			return apperr.Field("category", "Category "+in.Category+" is critical and cannot be muted or scheduled")
-		}
-		if !IsKnown(in.Category) {
-			return apperr.Field("category", "Unknown category "+in.Category)
-		}
-		if err := validateQuietHours(in.QuietStart, in.QuietEnd); err != nil {
-			return err
-		}
-	}
-
-	if req.Timezone != nil {
-		if err := s.repo.UpsertTimezone(ctx, userID, *req.Timezone); err != nil {
-			return apperr.Internal(err)
-		}
-	}
-	for _, in := range req.Preferences {
-		if err := s.repo.Upsert(ctx, &Preference{
-			UserID:     userID,
-			ComplexID:  complexID,
-			Category:   in.Category,
-			Enabled:    in.Enabled,
-			QuietStart: in.QuietStart,
-			QuietEnd:   in.QuietEnd,
-		}); err != nil {
-			return apperr.Internal(err)
-		}
-	}
-	return nil
-}
-
-func validateQuietHours(start, end *int) error {
-	if (start == nil) != (end == nil) {
-		return apperr.Field("quiet_hours", "quiet_start and quiet_end must both be set or both be null")
-	}
-	for _, v := range []*int{start, end} {
-		if v != nil && (*v < 0 || *v >= 1440) {
-			return apperr.Field("quiet_hours", "quiet hours must be minutes-of-day in [0, 1440)")
-		}
+	if err := s.repo.Save(ctx, userID, enabled); err != nil {
+		return apperr.Internal(err)
 	}
 	return nil
 }
 
 type Checker struct {
-	repo       Repository
-	defaultLoc *time.Location
+	repo Repository
 }
 
-func NewChecker(repo Repository, defaultLoc *time.Location) *Checker {
-	return &Checker{repo: repo, defaultLoc: defaultLoc}
+func NewChecker(repo Repository) *Checker {
+	return &Checker{repo: repo}
 }
 
-func (c *Checker) FilterRecipients(ctx context.Context, userIDs []uuid.UUID, category string, now time.Time) []uuid.UUID {
-	if IsCritical(category) || len(userIDs) == 0 {
+func (c *Checker) FilterRecipients(ctx context.Context, userIDs []uuid.UUID, category string) []uuid.UUID {
+	group := GroupOf(category)
+	if !isMutable(group) || len(userIDs) == 0 {
 		return userIDs
 	}
-	prefs, err := c.repo.GetByUsersCategory(ctx, userIDs, category)
-	if err != nil {
+	muted, err := c.repo.MutedUsers(ctx, userIDs, group)
+	if err != nil || len(muted) == 0 {
 		return userIDs
 	}
-
-	var quiet []uuid.UUID
-	for id, p := range prefs {
-		if p.Enabled && p.QuietStart != nil {
-			quiet = append(quiet, id)
-		}
-	}
-	var timezones map[uuid.UUID]string
-	if len(quiet) > 0 {
-		if timezones, err = c.repo.GetTimezones(ctx, quiet); err != nil {
-			timezones = nil
-		}
-	}
-	locs := map[string]*time.Location{}
-
 	out := make([]uuid.UUID, 0, len(userIDs))
 	for _, id := range userIDs {
-		pref, ok := prefs[id]
-		if !ok {
+		if !muted[id] {
 			out = append(out, id)
-			continue
 		}
-		if !pref.Enabled {
-			continue
-		}
-		tz := timezones[id]
-		loc, ok := locs[tz]
-		if !ok {
-			loc = c.location(tz)
-			locs[tz] = loc
-		}
-		if withinQuietHours(pref.QuietStart, pref.QuietEnd, now.In(loc)) {
-			continue
-		}
-		out = append(out, id)
 	}
 	return out
-}
-
-func (c *Checker) location(tz string) *time.Location {
-	if tz == "" {
-		return c.defaultLoc
-	}
-	loc, err := time.LoadLocation(tz)
-	if err != nil {
-		return c.defaultLoc
-	}
-	return loc
-}
-
-func withinQuietHours(start, end *int, now time.Time) bool {
-	if start == nil || end == nil {
-		return false
-	}
-	s, e := *start, *end
-	if s == e {
-		return false
-	}
-	m := now.Hour()*60 + now.Minute()
-	if s < e {
-		return m >= s && m < e
-	}
-	return m >= s || m < e
 }

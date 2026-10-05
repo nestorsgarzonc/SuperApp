@@ -19,7 +19,7 @@ var (
 type Repository interface {
 	CreateNotifications(ctx context.Context, in NewNotifications) ([]*Notification, error)
 
-	GetUserNotifications(ctx context.Context, complexID, userID uuid.UUID, unreadOnly bool, limit int) ([]*Notification, error)
+	GetUserNotifications(ctx context.Context, complexID, userID uuid.UUID, unreadOnly bool, types []string, limit int) ([]*Notification, error)
 	CountUnread(ctx context.Context, complexID, userID uuid.UUID) (int, error)
 	MarkAsRead(ctx context.Context, id, complexID, userID uuid.UUID) error
 	MarkAllAsRead(ctx context.Context, complexID, userID uuid.UUID) (int64, error)
@@ -84,18 +84,23 @@ func (r *PostgresRepository) CreateNotifications(ctx context.Context, in NewNoti
 	return created, nil
 }
 
-func (r *PostgresRepository) GetUserNotifications(ctx context.Context, complexID, userID uuid.UUID, unreadOnly bool, limit int) ([]*Notification, error) {
+func (r *PostgresRepository) GetUserNotifications(ctx context.Context, complexID, userID uuid.UUID, unreadOnly bool, types []string, limit int) ([]*Notification, error) {
 	query := `
 		SELECT id, complex_id, user_id, title, body, data, type, is_read, read_at,
 		       delivery_status, delivered_at, created_at
 		FROM notifications
 		WHERE (complex_id = $1 OR complex_id IS NULL) AND user_id = $2`
+	args := []any{complexID, userID, limit}
 	if unreadOnly {
 		query += ` AND is_read = false`
 	}
+	if types != nil {
+		args = append(args, pq.Array(types))
+		query += ` AND type = ANY($4)`
+	}
 	query += ` ORDER BY created_at DESC LIMIT $3`
 
-	rows, err := r.db.QueryContext(ctx, query, complexID, userID, limit)
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query notifications: %w", err)
 	}

@@ -10,7 +10,6 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-	_ "time/tzdata"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -77,7 +76,7 @@ func run(logger *slog.Logger) error {
 	devicesRepo := devices.NewPostgresRepository(db)
 	notifSvc := notifications.NewService(
 		notifications.NewPostgresRepository(db), devicesRepo, pusher,
-		preferences.NewChecker(prefsRepo, cfg.DefaultTimezone), logger,
+		preferences.NewChecker(prefsRepo), logger,
 	)
 
 	r := chi.NewRouter()
@@ -96,7 +95,7 @@ func run(logger *slog.Logger) error {
 	r.Group(func(r chi.Router) {
 		r.Use(gatewayauth.Middleware(cfg.GatewaySecret))
 		notifications.RegisterRoutes(r, notifications.NewHandler(notifSvc, logger))
-		preferences.RegisterRoutes(r, preferences.NewHandler(preferences.NewService(prefsRepo, cfg.DefaultTimezone), logger))
+		preferences.RegisterRoutes(r, preferences.NewHandler(preferences.NewService(prefsRepo), logger))
 		devices.RegisterRoutes(r, devices.NewHandler(devices.NewService(devicesRepo), logger))
 	})
 

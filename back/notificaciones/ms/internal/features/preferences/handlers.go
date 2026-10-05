@@ -35,9 +35,9 @@ func (h *Handler) UpdatePreferences(w http.ResponseWriter, r *http.Request) {
 	}
 	id, _ := gatewayauth.FromContext(r.Context())
 
-	if err := h.service.UpdatePreferences(r.Context(), id.UserID, id.ComplexID, req); err != nil {
+	if err := h.service.UpdatePreferences(r.Context(), id.UserID, req); err != nil {
 		apperr.RespondError(w, h.logger, err)
 		return
 	}
-	apperr.RespondNoContent(w)
+	h.GetPreferences(w, r)
 }

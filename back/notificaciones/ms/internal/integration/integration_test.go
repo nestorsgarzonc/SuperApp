@@ -35,7 +35,7 @@ func openDB(t *testing.T) *sql.DB {
 	db, err := sql.Open("postgres", url)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
-	_, err = db.Exec(`TRUNCATE notifications, processed_events, notification_preferences, notification_settings, user_devices`)
+	_, err = db.Exec(`TRUNCATE notifications, processed_events, notification_preferences, user_devices`)
 	require.NoError(t, err, "is the database migrated? run `make migrate`")
 	return db
 }
@@ -52,8 +52,6 @@ func openRedis(t *testing.T) *redis.Client {
 	t.Cleanup(func() { rdb.Close() })
 	return rdb
 }
-
-func ptr[T any](v T) *T { return &v }
 
 func TestNotificationsRepo_BulkInsertAndIdempotency(t *testing.T) {
 	db := openDB(t)
@@ -100,7 +98,7 @@ func TestNotificationsRepo_InboxIncludesAccountLevelRows(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	inbox, err := repo.GetUserNotifications(ctx, complexA, user, false, 50)
+	inbox, err := repo.GetUserNotifications(ctx, complexA, user, false, nil, 50)
 	require.NoError(t, err)
 	titles := []string{}
 	for _, n := range inbox {
@@ -150,32 +148,49 @@ func TestNotificationsRepo_UpdateDelivery(t *testing.T) {
 	require.NoError(t, repo.UpdateDelivery(ctx, created[0].ID, notifications.DeliveryStatusPushSent, &now))
 	assert.ErrorIs(t, repo.UpdateDelivery(ctx, uuid.New(), notifications.DeliveryStatusPushSent, &now), notifications.ErrNotFound)
 
-	inbox, err := repo.GetUserNotifications(ctx, complexID, user, false, 50)
+	inbox, err := repo.GetUserNotifications(ctx, complexID, user, false, nil, 50)
 	require.NoError(t, err)
 	require.Len(t, inbox, 1)
 	assert.Equal(t, notifications.DeliveryStatusPushSent, inbox[0].DeliveryStatus)
 	assert.NotNil(t, inbox[0].DeliveredAt)
 }
 
-func TestPreferencesRepo_BatchLookupAndTimezones(t *testing.T) {
+func TestPreferencesRepo_SaveAndMutedUsers(t *testing.T) {
 	repo := preferences.NewPostgresRepository(openDB(t))
 	ctx := context.Background()
-	muted, quiet, untouched := uuid.New(), uuid.New(), uuid.New()
+	muted, enabled, untouched := uuid.New(), uuid.New(), uuid.New()
 
-	require.NoError(t, repo.Upsert(ctx, &preferences.Preference{UserID: muted, Category: "GENERAL", Enabled: false}))
-	require.NoError(t, repo.Upsert(ctx, &preferences.Preference{UserID: quiet, Category: "GENERAL", Enabled: true, QuietStart: ptr(1320), QuietEnd: ptr(360)}))
-	require.NoError(t, repo.Upsert(ctx, &preferences.Preference{UserID: muted, Category: "GENERAL", Enabled: true}), "upsert updates")
-	require.NoError(t, repo.UpsertTimezone(ctx, quiet, "Europe/Madrid"))
+	require.NoError(t, repo.Save(ctx, muted, map[string]bool{"VOTES": false, "COMMUNITY": false}))
+	require.NoError(t, repo.Save(ctx, enabled, map[string]bool{"VOTES": false}))
+	require.NoError(t, repo.Save(ctx, enabled, map[string]bool{"VOTES": true}), "save updates")
 
-	prefs, err := repo.GetByUsersCategory(ctx, []uuid.UUID{muted, quiet, untouched}, "GENERAL")
+	got, err := repo.MutedUsers(ctx, []uuid.UUID{muted, enabled, untouched}, "VOTES")
 	require.NoError(t, err)
-	require.Len(t, prefs, 2)
-	assert.True(t, prefs[muted].Enabled)
-	assert.Equal(t, 1320, *prefs[quiet].QuietStart)
+	assert.Equal(t, map[uuid.UUID]bool{muted: true}, got)
 
-	tzs, err := repo.GetTimezones(ctx, []uuid.UUID{muted, quiet})
+	prefs, err := repo.GetByUser(ctx, muted)
 	require.NoError(t, err)
-	assert.Equal(t, map[uuid.UUID]string{quiet: "Europe/Madrid"}, tzs)
+	assert.Equal(t, map[string]bool{"VOTES": false, "COMMUNITY": false}, prefs)
+}
+
+func TestNotificationsRepo_InboxFiltersByType(t *testing.T) {
+	repo := notifications.NewPostgresRepository(openDB(t))
+	ctx := context.Background()
+	complexID, user := uuid.New(), uuid.New()
+	for _, typ := range []string{"VOTE", "ASSEMBLY", "VISITOR"} {
+		_, err := repo.CreateNotifications(ctx, notifications.NewNotifications{
+			EventID: uuid.NewString(), ComplexID: &complexID, UserIDs: []uuid.UUID{user}, Title: typ, Body: "b", Type: typ,
+		})
+		require.NoError(t, err)
+	}
+
+	inbox, err := repo.GetUserNotifications(ctx, complexID, user, false, []string{"ASSEMBLY", "VOTE"}, 50)
+	require.NoError(t, err)
+	titles := []string{}
+	for _, n := range inbox {
+		titles = append(titles, n.Title)
+	}
+	assert.ElementsMatch(t, []string{"VOTE", "ASSEMBLY"}, titles)
 }
 
 func TestDevicesRepo_TokenLifecycle(t *testing.T) {
@@ -260,7 +275,7 @@ func (e *consumerEnv) pending() int64 {
 func TestConsumer_ProcessesEventsOnceAndDeadLettersInvalid(t *testing.T) {
 	db := openDB(t)
 	svc := notifications.NewService(notifications.NewPostgresRepository(db), nil, nil,
-		preferences.NewChecker(preferences.NewPostgresRepository(db), time.UTC), logger)
+		preferences.NewChecker(preferences.NewPostgresRepository(db)), logger)
 	env := startConsumer(t, openRedis(t), svc)
 	complexID, user := uuid.New(), uuid.New()
 
