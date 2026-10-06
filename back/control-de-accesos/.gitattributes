@@ -1,0 +1,2 @@
+# El script se ejecuta dentro de un contenedor Linux: sin CRLF.
+*.sh text eol=lf

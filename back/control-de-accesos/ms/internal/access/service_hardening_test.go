@@ -75,6 +75,10 @@ func (fakeDirectory) GetUserDisplayName(context.Context, uuid.UUID) (string, err
 	return "Ana", nil
 }
 
+func (fakeDirectory) GetUnitMemberIDs(context.Context, uuid.UUID) ([]uuid.UUID, error) {
+	return nil, nil
+}
+
 type memberOfEverything struct{}
 
 func (memberOfEverything) IsUserAssociatedWithUnit(context.Context, uuid.UUID, uuid.UUID) (bool, error) {

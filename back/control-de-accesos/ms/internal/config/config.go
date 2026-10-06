@@ -9,6 +9,12 @@ type Config struct {
 	Env        string
 	Port       string
 	JWTSecret  string
+	// GatewaySecret authenticates requests forwarded by the api-gateway
+	// (X-Gateway-Secret); InternalSecret authenticates /internal/* calls
+	// (X-Internal-Secret). Empty GatewaySecret = gateway identity not accepted;
+	// empty InternalSecret = /internal/* not mounted.
+	GatewaySecret  string
+	InternalSecret string
 	DBHost     string
 	DBPort     string
 	DBUser     string
@@ -21,7 +27,10 @@ type Config struct {
 	DBMaxOpenConns        int
 	DBMaxIdleConns        int
 	DBConnMaxLifetimeMins int
-	NotificationsURL      string
+	// RedisURL is where notification requests are published for the
+	// notificaciones service; NotificationsStream is the stream name.
+	RedisURL            string
+	NotificationsStream string
 
 	// QR system circuit breaker.
 	QRBreakerFailures    int
@@ -37,6 +46,8 @@ func Load() Config {
 		Env:            getEnv("ENV", "production"),
 		Port:           getEnv("PORT", "8080"),
 		JWTSecret:      getEnv("JWT_SECRET", ""),
+		GatewaySecret:  getEnv("GATEWAY_SECRET", ""),
+		InternalSecret: getEnv("INTERNAL_SECRET", ""),
 		DBHost:         getEnv("DB_HOST", "localhost"),
 		DBPort:         getEnv("DB_PORT", "5432"),
 		DBUser:         getEnv("DB_USER", "control_de_accesos"),
@@ -49,8 +60,9 @@ func Load() Config {
 		// Recycling connections periodically means the pool picks up a
 		// changed DNS endpoint instead of pinning to a stale backend.
 		DBConnMaxLifetimeMins: getEnvInt("DB_CONN_MAX_LIFETIME_MINUTES", 5),
-		// Empty disables outbound event notifications (client no-ops).
-		NotificationsURL: getEnv("NOTIFICATIONS_URL", ""),
+		// Empty REDIS_URL disables outbound notifications (client no-ops).
+		RedisURL:            getEnv("REDIS_URL", ""),
+		NotificationsStream: getEnv("NOTIFICATIONS_STREAM", "notifications.requested"),
 
 		QRBreakerFailures:    getEnvInt("QR_BREAKER_FAILURES", 3),
 		QRBreakerOpenSeconds: getEnvInt("QR_BREAKER_OPEN_SECONDS", 10),

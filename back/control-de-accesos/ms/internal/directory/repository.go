@@ -58,6 +58,29 @@ func (r *Repository) GetUserDisplayName(ctx context.Context, userID uuid.UUID) (
 	return name, nil
 }
 
+// GetUnitMemberIDs returns the users that belong to the unit (its residents),
+// used to address notifications.
+func (r *Repository) GetUnitMemberIDs(ctx context.Context, unitID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT user_id FROM unit_members WHERE unit_id = $1`, unitID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load unit members: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan unit member: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to load unit members: %w", err)
+	}
+	return ids, nil
+}
+
 // IsUserAssociatedWithUnit reports whether the user is a member of the unit.
 func (r *Repository) IsUserAssociatedWithUnit(ctx context.Context, userID, unitID uuid.UUID) (bool, error) {
 	var exists bool

@@ -12,6 +12,7 @@ import (
 	"controldeaccesos/internal/audit"
 	"controldeaccesos/internal/config"
 	"controldeaccesos/internal/directory"
+	"controldeaccesos/internal/membership"
 	"controldeaccesos/internal/notifier"
 	"controldeaccesos/internal/platform/database"
 	authmw "controldeaccesos/internal/platform/middleware"
@@ -25,12 +26,15 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := config.Load()
 
-	if cfg.JWTSecret == "" {
-		logger.Error("JWT_SECRET is required")
+	// A caller is authenticated either by a JWT or by the identity the
+	// gateway forwards; at least one way must be configured.
+	if cfg.JWTSecret == "" && cfg.GatewaySecret == "" {
+		logger.Error("JWT_SECRET or GATEWAY_SECRET is required")
 		os.Exit(1)
 	}
-	// ValidateJWT/GenerateJWT read the secret straight from the environment.
+	// The auth middleware reads these straight from the environment.
 	os.Setenv("JWT_SECRET", cfg.JWTSecret)
+	os.Setenv("GATEWAY_SECRET", cfg.GatewaySecret)
 	os.Setenv("ENV", cfg.Env)
 
 	dbPort, err := strconv.Atoi(cfg.DBPort)
@@ -59,7 +63,12 @@ func main() {
 	dir := directory.NewRepository(db.DB)
 	accessRepo := access.NewPostgresRepository(db.DB)
 	auditRepo := audit.NewRepository(db.DB)
-	notifierClient := notifier.New(cfg.NotificationsURL, logger)
+	notifierClient, err := notifier.New(cfg.RedisURL, cfg.NotificationsStream, logger)
+	if err != nil {
+		logger.Error("invalid REDIS_URL", "error", err)
+		os.Exit(1)
+	}
+	defer notifierClient.Close()
 	// QR system behind a circuit breaker. In development it is simulated so its
 	// failure can be provoked from the dev tools; elsewhere codes are issued locally.
 	qrSys := qrsystem.New(newQRClient(), qrsystem.Config{
@@ -71,6 +80,7 @@ func main() {
 	accessService := access.NewService(accessRepo, dir, dir, notifierClient, auditRepo, qrSys, logger)
 	accessHandler := access.NewHandler(accessService)
 	accessLogHandler := accesslog.NewHandler(accesslog.NewPostgresRepository(db.DB), auditRepo, logger)
+	membershipHandler := membership.NewHandler(dir)
 
 	r := chi.NewRouter()
 	r.Use(chimw.Logger)
@@ -87,7 +97,11 @@ func main() {
 		w.Write([]byte("ok"))
 	})
 
+	// Service-to-service endpoints (never routed by the gateway).
+	membership.RegisterInternalRoutes(r, membershipHandler, cfg.InternalSecret)
+
 	r.Route("/api/v1", func(r chi.Router) {
+		membership.RegisterRoutes(r, membershipHandler)
 		access.RegisterRoutes(r, accessHandler, dir)
 		accesslog.RegisterRoutes(r, accessLogHandler, dir)
 		accesslog.RegisterResidentRoutes(r, accessLogHandler, dir)
