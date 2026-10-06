@@ -56,7 +56,7 @@ type QRSystem interface {
 	Availability() qrsystem.Public
 }
 
-// UnitMembershipChecker verifies a caller is associated with a unit — the
+// UnitMembershipChecker verifies a caller is associated with a unit â€” the
 // IDOR guard for every grant-write/read/cancel operation below.
 type UnitMembershipChecker interface {
 	IsUserAssociatedWithUnit(ctx context.Context, userID, unitID uuid.UUID) (bool, error)
@@ -68,6 +68,7 @@ type DirectoryRepository interface {
 	GetUnitComplexID(ctx context.Context, unitID uuid.UUID) (complexID uuid.UUID, found bool, err error)
 	GetUnitName(ctx context.Context, unitID uuid.UUID) (string, error)
 	GetUserDisplayName(ctx context.Context, userID uuid.UUID) (string, error)
+	GetUnitMemberIDs(ctx context.Context, unitID uuid.UUID) ([]uuid.UUID, error)
 }
 
 // Implementations must never block or fail the caller.
@@ -134,22 +135,81 @@ func (s *service) QRSystemStatus() qrsystem.Public {
 	return s.qr.Availability()
 }
 
-func (s *service) notify(ctx context.Context, eventType string, grant *AccessGrant) {
+// Grant lifecycle moments that notify the residents of the target unit.
+const (
+	eventGrantCreated   = "grant_created"
+	eventGrantCancelled = "grant_cancelled"
+	eventGrantValidated = "grant_validated"
+)
+
+// notify tells the residents of the grant's unit what happened. The actor (who
+// caused it, if a resident) is left out: they already know. It runs in the
+// background â€” recipient lookup included â€” so it never delays or fails the
+// request.
+func (s *service) notify(ctx context.Context, event string, grant *AccessGrant, actor *uuid.UUID) {
 	if s.notifier == nil || grant == nil {
 		return
 	}
-	s.notifier.Notify(ctx, notifier.Event{
-		Type:        eventType,
-		ComplexID:   grant.ComplexID,
-		UnitID:      grant.UnitID,
-		GrantID:     grant.ID,
-		VisitorName: grant.VisitorName,
-		Method:      grant.Method,
-	})
+	g := *grant
+	bgCtx := context.WithoutCancel(ctx)
+
+	go func() {
+		members, err := s.directory.GetUnitMemberIDs(bgCtx, g.UnitID)
+		if err != nil {
+			s.logger.Warn("notify: failed to resolve unit members", "unit_id", g.UnitID, "error", err)
+			return
+		}
+		recipients := make([]uuid.UUID, 0, len(members))
+		for _, id := range members {
+			if actor == nil || id != *actor {
+				recipients = append(recipients, id)
+			}
+		}
+		if len(recipients) == 0 {
+			return
+		}
+
+		visitor := strings.TrimSpace(g.VisitorName)
+		if visitor == "" {
+			visitor = "Un visitante"
+		}
+		unit := "tu unidad"
+		if name, err := s.directory.GetUnitName(bgCtx, g.UnitID); err == nil && strings.TrimSpace(name) != "" {
+			unit = name
+		}
+
+		category, title, body := notifier.CategoryAccess, "", ""
+		switch event {
+		case eventGrantCreated:
+			title, body = "Acceso autorizado", fmt.Sprintf("Se autorizÃ³ el ingreso de %s a %s", visitor, unit)
+		case eventGrantCancelled:
+			title, body = "Acceso cancelado", fmt.Sprintf("Se cancelÃ³ la autorizaciÃ³n de %s para %s", visitor, unit)
+		case eventGrantValidated:
+			category = notifier.CategoryVisitor
+			title, body = "Visitante en porterÃ­a", fmt.Sprintf("%s ingresÃ³ a %s", visitor, unit)
+		default:
+			return
+		}
+
+		complexID := g.ComplexID
+		s.notifier.Notify(bgCtx, notifier.Event{
+			ComplexID: &complexID,
+			UserIDs:   recipients,
+			Category:  category,
+			Title:     title,
+			Body:      body,
+			Data: map[string]any{
+				"event":    event,
+				"grant_id": g.ID.String(),
+				"unit_id":  g.UnitID.String(),
+				"method":   g.Method,
+			},
+		})
+	}()
 }
 
 // audit writes a best-effort append-only trail entry. A nil auditor (e.g.
-// unit tests) or a write failure never affects the caller — it's only
+// unit tests) or a write failure never affects the caller â€” it's only
 // logged.
 func (s *service) audit(ctx context.Context, actorID, complexID *uuid.UUID, resourceType string, resourceID *uuid.UUID, action, result, reason string) {
 	if s.auditor == nil {
@@ -257,7 +317,7 @@ func (s *service) CreateQRCode(ctx context.Context, complexID uuid.UUID, created
 		creatorName = name
 	}
 
-	s.notify(ctx, notifier.EventQRCreated, grant)
+	s.notify(ctx, eventGrantCreated, grant, &createdBy)
 
 	return &AccessGrantResponse{
 		AccessGrant: *grant,
@@ -315,7 +375,7 @@ func (s *service) CreateQRBatch(ctx context.Context, complexID uuid.UUID, create
 
 	if len(grants) > 0 {
 		s.audit(ctx, &createdBy, &complexID, "access_grant", nil, ActionCreateGrant, audit.ResultAllowed, fmt.Sprintf("batch of %d", len(grants)))
-		s.notify(ctx, notifier.EventQRCreated, grants[len(grants)-1])
+		s.notify(ctx, eventGrantCreated, grants[len(grants)-1], &createdBy)
 	}
 
 	return grants, nil
@@ -351,7 +411,7 @@ func (s *service) CreatePreAuth(ctx context.Context, complexID uuid.UUID, create
 		return nil, err
 	}
 	s.audit(ctx, &createdBy, &complexID, "access_grant", &grant.ID, ActionCreateGrant, audit.ResultAllowed, "")
-	s.notify(ctx, notifier.EventPreAuthCreated, grant)
+	s.notify(ctx, eventGrantCreated, grant, &createdBy)
 	return grant, nil
 }
 
@@ -361,7 +421,7 @@ func (s *service) GetPreAuthorizations(ctx context.Context, complexID, userID uu
 }
 
 // IDOR guard #1: the body's unit_id must belong to the caller's complex.
-// IDOR guard #2: the caller must be associated with that unit — complex scope
+// IDOR guard #2: the caller must be associated with that unit â€” complex scope
 // alone is not enough, since any complex member could otherwise mint a grant
 // into a neighbor's unit.
 func (s *service) CreateAccessGrant(ctx context.Context, complexID uuid.UUID, createdBy uuid.UUID, req CreateAccessGrantRequest) (*AccessGrant, error) {
@@ -382,7 +442,7 @@ func (s *service) CreateAccessGrant(ctx context.Context, complexID uuid.UUID, cr
 		return nil, err
 	}
 	s.audit(ctx, &createdBy, &complexID, "access_grant", &grant.ID, ActionCreateGrant, audit.ResultAllowed, "")
-	s.notify(ctx, notifier.EventGrantCreated, grant)
+	s.notify(ctx, eventGrantCreated, grant, &createdBy)
 	return grant, nil
 }
 
@@ -426,7 +486,7 @@ func (s *service) CancelAccessGrant(ctx context.Context, complexID uuid.UUID, us
 		return err
 	}
 	s.audit(ctx, &userID, &complexID, "access_grant", &id, ActionCancelGrant, audit.ResultAllowed, "")
-	s.notify(ctx, notifier.EventGrantCancelled, grant)
+	s.notify(ctx, eventGrantCancelled, grant, &userID)
 	return nil
 }
 
@@ -544,7 +604,7 @@ func (s *service) ValidateAccess(ctx context.Context, req ValidateAccessRequest)
 	}
 
 	// Consumption is the server's decision, not the client's: every grant is
-	// single-use, consumed atomically on its first successful validation —
+	// single-use, consumed atomically on its first successful validation â€”
 	// so a QR/PRE_AUTH scanned twice is accepted exactly once.
 	if grant.SingleUse {
 		var usedBy uuid.UUID
@@ -562,7 +622,7 @@ func (s *service) ValidateAccess(ctx context.Context, req ValidateAccessRequest)
 	}
 
 	s.audit(ctx, actorID, &complexID, "access_grant", &grant.ID, ActionValidateGrant, audit.ResultAllowed, "")
-	s.notify(ctx, notifier.EventGrantValidated, grant)
+	s.notify(ctx, eventGrantValidated, grant, nil)
 
 	// The gate shows where the visitor is going; a failed lookup only omits it.
 	var unitName *string

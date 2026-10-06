@@ -29,10 +29,9 @@ el 1 y guardia en el 2). Los datos de demostración están en `db/seeds/001_demo
 
 `ms/internal/accesslog`: bitácora de portería (ver *Reglas de negocio*).
 
-`ms/internal/notifier`: `POST` best-effort a `NOTIFICATIONS_URL` en cada
-creación/validación/cancelación de grant. Vacío o con error → no-op, no
-bloquea la operación. *(Esquema de eventos — nombres, `eventId`/`correlationId`,
-retry+DLQ — pendiente de rediseño, ver sección "Pendiente".)*
+`ms/internal/notifier`: publica en el stream de Redis `notifications.requested` (contrato de
+`notificaciones`) al crear/validar/cancelar un grant, dirigido a los residentes de la unidad.
+Sin `REDIS_URL` o con error de Redis → no-op, no bloquea la operación.
 
 `ms/internal/audit`: tabla `audit_log` append-only (triggers `BEFORE UPDATE/DELETE`
 que rechazan la operación a nivel de base de datos, no solo por disciplina de
@@ -237,13 +236,12 @@ JWT_SECRET=<el del ms> node test/isolation.mjs                      # BASE=http:
 cd ms && go test ./...                       # validaciones de accesslog + middleware de personal
 ```
 
-Para ver los eventos que dispara `internal/notifier` (sin montar el
-microservicio de notificaciones real):
+Para probar las notificaciones contra el microservicio real (`back/notificaciones`, Redis en `localhost:6380`):
 
 ```bash
-python3 test/mock_notifications.py 9000
-# en otra terminal, con el server apuntando ahí:
-NOTIFICATIONS_URL=http://localhost:9000/events go run ./cmd/api
+cd ../notificaciones && docker compose up -d db redis && docker compose --profile tools run --rm migrate && docker compose up -d ms
+REDIS_URL=redis://localhost:6380/0 go run ./cmd/api   # desde ms/
+# la bandeja del residente: GET localhost:8083/users/me/notifications (headers X-User-ID y X-Complex-ID)
 ```
 
 ## AWS RDS
@@ -287,19 +285,44 @@ DB_SSLMODE=require ./db/migrate.sh
 | GET | `/api/v1/dev/token` | ninguno | *(solo dev)* `?user_id=&complex_id=[&role=]` → JWT de esa persona en ese conjunto |
 | GET | `/healthz` | ninguno | Health check |
 
-## Eventos salientes (hacia `notificaciones`, cuando exista)
+## Identidad detrás del API Gateway
 
-`ms/internal/notifier` dispara un `POST` a `NOTIFICATIONS_URL` (JSON, best-effort) en estos momentos:
+Además del JWT HS256 (desarrollo y pruebas), el `ms` acepta la identidad que reenvía el gateway
+(contrato en [`api-gateway.md`](api-gateway.md)). Se activa con `GATEWAY_SECRET`; con él configurado
+`JWT_SECRET` pasa a ser opcional.
 
-| Evento | Se dispara en |
+| Header | Uso |
 |---|---|
-| `access.qr_created` | `CreateQRCode`, `CreateQRBatch` |
-| `access.pre_auth_created` | `CreatePreAuth` |
-| `access.grant_created` | `CreateAccessGrant` |
-| `access.grant_validated` | `ValidateAccessGrant` (cuando el resultado es válido) |
-| `access.grant_cancelled` | `CancelAccessGrant` |
+| `X-Gateway-Secret` | debe ser igual a `GATEWAY_SECRET` (comparación en tiempo constante); si no → `401` |
+| `X-User-ID` | usuario autenticado (UUID) |
+| `X-Complex-ID` | conjunto seleccionado; se sigue validando contra `unit_members`/`complex_staff` |
+| `X-Complex-Role` | rol que el gateway obtuvo de este servicio |
 
-Payload: `{type, complex_id, unit_id, grant_id, visitor_name, method}`.
+Sin `X-Gateway-Secret` esos headers se ignoran como cualquier input del cliente. El rol del header no es
+suficiente para las rutas de personal: `RequireStaffMiddleware` lo vuelve a comprobar en la base.
+
+| Método | Ruta | Quién | Respuesta |
+|---|---|---|---|
+| GET | `/api/v1/me/memberships` | el front, tras el login | `{user_id, name, memberships:[{complex_id, complex_name, role, unit_id?, unit_name?}]}` |
+| GET | `/internal/users/{userId}/complexes/{complexId}/role` | el gateway (`X-Internal-Secret`) | `{role}` (el más alto si tiene varios) o `404` |
+
+`/internal/*` solo se monta si `INTERNAL_SECRET` está definido. El `ms` de auth no devuelve conjuntos ni roles:
+el front los obtiene de `/me/memberships` después de iniciar sesión.
+
+## Eventos salientes (hacia `notificaciones`)
+
+`ms/internal/notifier` publica en el stream de Redis `notifications.requested` (contrato en
+[`docs/events.md`](events.md)), best-effort. Los destinatarios son los miembros de la unidad del
+grant (`unit_members`), sin el residente que originó la acción:
+
+| Momento | Categoría | Destinatarios | Se dispara en |
+|---|---|---|---|
+| Grant creado (QR, lote QR, pre-autorización, grant) | `ACCESS` | demás residentes de la unidad | `CreateQRCode`, `CreateQRBatch`, `CreatePreAuth`, `CreateAccessGrant` |
+| Grant cancelado | `ACCESS` | demás residentes de la unidad | `CancelAccessGrant` |
+| Visitante validado en portería | `VISITOR` | todos los residentes de la unidad | `ValidateAccess` (solo si el resultado es válido) |
+
+Cada evento lleva `event_id` (UUID v7), `source: control-de-accesos`, `complex_id`, `user_ids`,
+`title`, `body` y `data` (`event`, `grant_id`, `unit_id`, `method`). Sin `REDIS_URL` el cliente no hace nada.
 
 ## Entrada y salida de residentes
 
@@ -380,7 +403,7 @@ Resultado de la revisión de código; cada punto tiene prueba (`test/hardening.m
 
 ## Pendiente
 
-- Nombres/forma del evento no son `AccessGranted`/`AccessDenied`/`VisitorEntered`/`VisitorExited`
-  ni llevan `eventId`/`correlationId`/`schemaVersion`; tampoco hay retry/DLQ —
-  rediseño de `internal/notifier` pendiente para una sesión aparte, ya que
-  cambia el contrato que `notificaciones` tendría que consumir.
+- Las notificaciones salientes son best-effort: si Redis no responde el evento se pierde (se
+  registra en el log). Para no perderlos haría falta un outbox transaccional; los nombres
+  `AccessGranted`/`VisitorEntered`/… del diseño original no se usan: se publica el contrato
+  `notifications.requested` que define `notificaciones` (ver `docs/events.md`).
