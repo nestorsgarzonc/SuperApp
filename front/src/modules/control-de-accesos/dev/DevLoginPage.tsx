@@ -92,9 +92,11 @@ export function DevLoginPage() {
             key={u.userId}
             className="profile-card"
             disabled={busy !== null}
-            onClick={() =>
-              u.memberships.length === 1 ? void run(u.userId, () => loginDemo(u.userId, u.memberships[0])) : setChoosing(u)
-            }
+            onClick={() => {
+              const membership = u.memberships[0];
+              if (u.memberships.length === 1 && membership) void run(u.userId, () => loginDemo(u.userId, membership));
+              else setChoosing(u);
+            }}
           >
             <b>{u.name}</b>
             <span>

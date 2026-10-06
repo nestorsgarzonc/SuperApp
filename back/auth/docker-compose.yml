@@ -1,0 +1,19 @@
+services:
+  auth-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: auth_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/auth_db_password
+    ports:
+      - "${AUTH_DB_PORT:-5434}:5432"
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+    secrets:
+      - auth_db_password
+volumes:
+  auth_db_data:
+secrets:
+  auth_db_password:
+    file: ./.secrets/auth_db_password

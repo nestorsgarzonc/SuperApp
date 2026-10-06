@@ -1,0 +1,72 @@
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"github.com/jackc/pgx/v5/pgconn"
+	"superapp/auth/internal/core/domain"
+	coreRepository "superapp/auth/internal/core/ports/repository"
+)
+
+func (r *Repository) CreateUser(ctx context.Context, params coreRepository.CreateUserParams) (*domain.User, error) {
+	u := &domain.User{}
+	err := r.db.QueryRowContext(ctx, `INSERT INTO auth_users(id,email,email_normalized,password_hash,full_name) VALUES($1,$2,$2,$3,$4) ON CONFLICT(email_normalized) DO NOTHING RETURNING id,email,full_name,status,created_at`, params.ID, params.Email, params.PasswordHash, params.FullName).Scan(&u.ID, &u.Email, &u.FullName, &u.Status, &u.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, domain.ErrEmailTaken
+	}
+	return u, err
+}
+
+func (r *Repository) UserByEmail(ctx context.Context, email string) (*domain.User, string, error) {
+	u := &domain.User{}
+	var hash string
+	err := r.db.QueryRowContext(ctx, `SELECT id,email,full_name,status,created_at,password_hash FROM auth_users WHERE email_normalized=$1`, email).Scan(&u.ID, &u.Email, &u.FullName, &u.Status, &u.CreatedAt, &hash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, "", nil
+	}
+	return u, hash, err
+}
+
+func (r *Repository) UserByID(ctx context.Context, id string) (*domain.User, error) {
+	u := &domain.User{}
+	err := r.db.QueryRowContext(ctx, `SELECT id,email,full_name,status,created_at FROM auth_users WHERE id=$1`, id).Scan(&u.ID, &u.Email, &u.FullName, &u.Status, &u.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	return u, err
+}
+
+func (r *Repository) UpdateUser(ctx context.Context, params coreRepository.UpdateUserParams) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE auth_users SET email=COALESCE($2,email),email_normalized=COALESCE($2,email_normalized),full_name=COALESCE($3,full_name),status=COALESCE($4,status),updated_at=now() WHERE id=$1`, params.ID, params.Email, params.FullName, params.Status)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return domain.ErrEmailTaken
+		}
+		return translateError(err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	if params.Status != nil && *params.Status != "ACTIVE" {
+		if _, err = tx.ExecContext(ctx, `UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1`, params.ID); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE auth_refresh_tokens t SET revoked_at=COALESCE(t.revoked_at,now()) FROM auth_sessions s WHERE t.session_id=s.id AND s.user_id=$1`, params.ID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (r *Repository) SetLastLogin(ctx context.Context, id string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE auth_users SET last_login_at=now() WHERE id=$1`, id)
+	return err
+}
