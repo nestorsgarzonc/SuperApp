@@ -24,6 +24,7 @@ export interface DevUser {
 
 export const ROLE_LABEL: Record<Role, string> = {
   RESIDENT: 'Residente',
+  OWNER: 'Propietario',
   GUARD: 'Portería',
   ADMIN: 'Administración',
 };

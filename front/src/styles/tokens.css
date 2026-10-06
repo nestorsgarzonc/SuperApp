@@ -1,0 +1,9 @@
+:root {
+  --primary: #1F6A8A; --primary-hover: #17566F; --secondary: #3FB6DC; --primary-soft: #E3F2F8;
+  --background: #F4F8FA; --surface: #FFFFFF; --text-primary: #12303D; --text-secondary: #4A6370; --border: #D3DFE5;
+  --success: #1E7B4F; --success-soft: #E8F5EE; --warning: #9A5B00; --warning-soft: #FFF4DF;
+  --error: #B3261E; --error-soft: #FCEDEA; --info: #1B66B0; --info-soft: #EAF3FC; --neutral-soft: #E9EEF1;
+  --radius-sm: 6px; --radius-md: 12px; --radius-lg: 20px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px; --space-8: 32px;
+  --shadow-sm: 0 2px 8px rgb(18 48 61 / 6%); --shadow-md: 0 12px 32px rgb(18 48 61 / 9%); --shadow-lg: 0 24px 64px rgb(18 48 61 / 13%);
+}

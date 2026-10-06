@@ -1,33 +1,25 @@
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import { AuthProvider, useAuth } from './shared/auth/AuthContext';
-import { DevLoginPage } from './modules/control-de-accesos/dev/DevLoginPage';
-import { AppShell } from './shared/layout/AppShell';
-import { ComplexSwitcher } from './modules/control-de-accesos/dev/ComplexSwitcher';
-import { DevPanel } from './modules/control-de-accesos/dev/DevPanel';
-import { accessControlRoutes } from './modules/control-de-accesos/routes';
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import App from './App';
+import { AuthProvider } from './features/auth/components/AuthContext';
+import { AuthProvider as SessionProvider } from './shared/auth/AuthContext';
 import './shared/styles.css';
+import './styles/global.css';
 
-function App() {
-  const { session } = useAuth();
-  // Entrada de PRUEBAS de control-de-accesos; se reemplaza por el login del módulo auth.
-  if (!session) return <DevLoginPage />;
-  return (
-    <Routes>
-      <Route element={<AppShell complexSlot={<ComplexSwitcher />} />}>{accessControlRoutes}</Route>
-      <Route path="*" element={<p style={{ padding: 24 }}>Página no encontrada</p>} />
-    </Routes>
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } });
+const start = async () => {
+  if (import.meta.env.VITE_USE_MOCK_API === 'true') {
+    try {
+      const { worker } = await import('./test/browser');
+      await worker.start({ onUnhandledRequest: 'bypass' });
+    } catch {
+      // La pantalla sigue accesible si un navegador local bloquea el worker mock.
+    }
+  }
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode><QueryClientProvider client={queryClient}><BrowserRouter><SessionProvider><AuthProvider><App /></AuthProvider></SessionProvider></BrowserRouter></QueryClientProvider></React.StrictMode>,
   );
-}
-
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <BrowserRouter>
-      <AuthProvider>
-        <App />
-        {import.meta.env.DEV && <DevPanel />}
-      </AuthProvider>
-    </BrowserRouter>
-  </StrictMode>,
-);
+};
+void start();
