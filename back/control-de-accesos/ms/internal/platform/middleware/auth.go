@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -39,8 +40,56 @@ type JWTClaims struct {
 	ExpiresAt int64  `json:"exp"`
 }
 
+// Headers the API gateway injects once it has validated the caller (see
+// docs/api-gateway.md). They are only trusted together with a valid
+// X-Gateway-Secret; without it they are ignored like any other client header.
+const (
+	HeaderGatewaySecret = "X-Gateway-Secret"
+	HeaderUserID        = "X-User-ID"
+	HeaderComplexID     = "X-Complex-ID"
+	HeaderComplexRole   = "X-Complex-Role"
+)
+
+// gatewayClaims reads the identity injected by the gateway. viaGateway is true
+// when the request carries X-Gateway-Secret at all, in which case err says
+// whether it is acceptable: the secret must match GATEWAY_SECRET (constant
+// time) and X-User-ID must be a UUID. A request without the header is not a
+// gateway request and falls through to the regular JWT path.
+func gatewayClaims(r *http.Request) (claims *JWTClaims, viaGateway bool, err error) {
+	provided := r.Header.Get(HeaderGatewaySecret)
+	if provided == "" {
+		return nil, false, nil
+	}
+	secret := os.Getenv("GATEWAY_SECRET")
+	if secret == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(secret)) != 1 {
+		return nil, true, errors.New("request did not come through the gateway")
+	}
+	userID, perr := uuid.Parse(r.Header.Get(HeaderUserID))
+	if perr != nil {
+		return nil, true, errors.New("authentication required")
+	}
+	c := &JWTClaims{UserID: userID.String(), Role: strings.ToUpper(strings.TrimSpace(r.Header.Get(HeaderComplexRole)))}
+	if raw := r.Header.Get(HeaderComplexID); raw != "" {
+		complexID, perr := uuid.Parse(raw)
+		if perr != nil {
+			return nil, true, errors.New("invalid complex ID format")
+		}
+		c.ComplexID = complexID.String()
+	}
+	return c, true, nil
+}
+
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if claims, viaGateway, err := gatewayClaims(r); viaGateway {
+			if err != nil {
+				respondWithError(w, http.StatusUnauthorized, err.Error())
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(withClaims(r.Context(), claims)))
+			return
+		}
+
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
 			respondWithError(w, http.StatusUnauthorized, "Missing authorization header")
@@ -68,6 +117,15 @@ func AuthMiddleware(next http.Handler) http.Handler {
 // Used in development so local testing works both with and without a bearer token.
 func OptionalAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if claims, viaGateway, err := gatewayClaims(r); viaGateway {
+			if err != nil {
+				respondWithError(w, http.StatusUnauthorized, err.Error())
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(withClaims(r.Context(), claims)))
+			return
+		}
+
 		authHeader := r.Header.Get("Authorization")
 		if authHeader != "" {
 			parts := strings.Split(authHeader, " ")

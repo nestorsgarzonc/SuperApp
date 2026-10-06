@@ -14,9 +14,10 @@ services:
       - "5433:5432"
     volumes:
       - control_de_accesos_db:/var/lib/postgresql/data
-      - ./db/migrations:/docker-entrypoint-initdb.d
-      # Datos de demostración (solo dev): se ejecutan después de las migraciones (900_ > 00x_).
-      - ./db/seeds/001_demo.sql:/docker-entrypoint-initdb.d/900_demo_seed.sql:ro
+      # Migraciones + datos de demostración (solo dev) en el primer arranque, vía docker-init.sh.
+      - ./db/migrations:/sql/migrations:ro
+      - ./db/seeds:/sql/seeds:ro
+      - ./db/docker-init.sh:/docker-entrypoint-initdb.d/00_init.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U control_de_accesos -d control_de_accesos"]
       interval: 5s
@@ -34,14 +35,18 @@ services:
       ENV: development
       PORT: 8080
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      # Identidad que reenvía el api-gateway (X-Gateway-Secret) y llamadas /internal/* (X-Internal-Secret).
+      # Vacío = no se aceptan / /internal no se monta.
+      GATEWAY_SECRET: ${GATEWAY_SECRET:-}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-}
       DB_HOST: db
       DB_PORT: 5432
       DB_USER: control_de_accesos
       DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
       DB_NAME: control_de_accesos
       DB_SSLMODE: disable
-      # Base URL for outbound event notifications. Empty = disabled.
-      NOTIFICATIONS_URL: ""
+      # Redis del servicio notificaciones (stream notifications.requested). Vacío = desactivado.
+      REDIS_URL: ${REDIS_URL:-}
       # Circuit breaker del sistema QR (ver docs/control-de-accesos.md)
       QR_BREAKER_FAILURES: ${QR_BREAKER_FAILURES:-3}
       QR_BREAKER_OPEN_SECONDS: ${QR_BREAKER_OPEN_SECONDS:-10}
