@@ -11,7 +11,7 @@ export class ApiError extends Error {
   }
 }
 
-export type Role = 'RESIDENT' | 'GUARD' | 'ADMIN';
+export type Role = 'RESIDENT' | 'OWNER' | 'GUARD' | 'ADMIN';
 
 /** Una persona puede tener varios conjuntos y un rol distinto en cada uno. */
 export interface Membership {
@@ -47,6 +47,23 @@ export const setApiSession = (s: Session | null) => {
   session = s;
 };
 
+let refreshRequest: Promise<string | null> | null = null;
+async function refreshAccessToken(): Promise<string | null> {
+  if (!refreshRequest) {
+    refreshRequest = fetch(`${BASE}/auth/refresh`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const json = await response.json() as { access_token?: string; data?: { access_token?: string }; tokens?: { access_token?: string } };
+        const token = json.access_token ?? json.data?.access_token ?? json.tokens?.access_token;
+        if (!token || !session) return null;
+        setApiSession({ ...session, token });
+        window.dispatchEvent(new CustomEvent('superapp:access-token-refreshed', { detail: { token } }));
+        return token;
+      }).catch(() => null).finally(() => { refreshRequest = null; });
+  }
+  return refreshRequest;
+}
+
 interface Envelope<T> {
   success: boolean;
   data?: T;
@@ -59,7 +76,7 @@ interface RequestOpts {
   auth?: boolean;
 }
 
-export async function api<T>(path: string, opts: RequestOpts = {}): Promise<T> {
+export async function api<T>(path: string, opts: RequestOpts = {}, retry = true): Promise<T> {
   const headers: Record<string, string> = {};
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
   if (opts.auth !== false && session) {
@@ -73,12 +90,19 @@ export async function api<T>(path: string, opts: RequestOpts = {}): Promise<T> {
       method: opts.method ?? 'GET',
       headers,
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      credentials: 'include',
     });
   } catch {
     throw new ApiError('Sin conexión con el servidor', 0);
   }
 
   const json = (await res.json().catch(() => null)) as Envelope<T> | null;
+  if (res.status === 401 && opts.auth !== false && retry && path !== '/auth/refresh') {
+    const token = await refreshAccessToken();
+    if (token) return api<T>(path, opts, false);
+    setApiSession(null);
+    window.dispatchEvent(new CustomEvent('superapp:session-expired'));
+  }
   if (!res.ok) {
     const err = json?.error;
     throw new ApiError(err?.message ?? `Error ${res.status}`, res.status, err?.details, err?.code);

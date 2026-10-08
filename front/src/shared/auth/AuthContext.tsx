@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { setApiSession, type Session } from '../api/client';
 
 interface AuthValue {
@@ -9,56 +9,25 @@ interface AuthValue {
   logout: () => void;
 }
 
-const STORAGE_KEY = 'superapp.session';
 const AuthContext = createContext<AuthValue | null>(null);
 
-function loadStored(): Session | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as Session) : null;
-  } catch {
-    return null;
-  }
-}
-
-const persist = (s: Session | null) => {
-  try {
-    if (s) localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-    else localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    /* almacenamiento bloqueado: la sesión vive solo en memoria */
-  }
-};
-
-const isExpired = (token: string) => {
-  try {
-    const { exp } = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return typeof exp === 'number' && exp * 1000 < Date.now();
-  } catch {
-    return true;
-  }
-};
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(() => {
-    const s = loadStored();
-    const usable = s && !isExpired(s.token) ? s : null;
-    if (!usable) persist(null);
-    setApiSession(usable);
-    return usable;
-  });
+  const [session, setSession] = useState<Session | null>(() => { setApiSession(null); return null; });
 
   const signIn = useCallback((s: Session) => {
     setApiSession(s);
-    persist(s);
     setSession(s);
   }, []);
 
   const logout = useCallback(() => {
     setApiSession(null);
-    persist(null);
     setSession(null);
   }, []);
+  useEffect(() => {
+    const clear = () => logout();
+    window.addEventListener('superapp:session-expired', clear);
+    return () => window.removeEventListener('superapp:session-expired', clear);
+  }, [logout]);
 
   const value = useMemo<AuthValue>(
     () => ({
