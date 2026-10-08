@@ -1,0 +1,6 @@
+.env
+.git
+ms
+test
+README.md
+!ms/.env.example

@@ -91,8 +91,10 @@ La cédula `COL555555` tiene una pre-autorización en *cada* conjunto, a propós
   `valid_from`, debe ser anterior a `valid_until`. Si no, `422`.
 - **Longitudes máximas**: `visitor_name` 200, `visitor_id_number` 50,
   `details` 1000 caracteres. Si no, `422`.
-- **conjuntoId siempre viene del JWT**, nunca de `?complex_id=` ni de
-  `X-Complex-ID` — un valor en el query/header se ignora por completo.
+- **conjuntoId no lo decide el cliente a ciegas**: con un JWT HS256 (dev/pruebas) viene dentro del token y
+  `?complex_id=`/`X-Complex-ID` se ignoran; con un token RS256 de `auth` o con la identidad del gateway viene de
+  `X-Complex-ID`, pero solo se acepta si el usuario pertenece a ese conjunto (si no, `403`) y el rol sale de
+  las membresías de este servicio, nunca del cliente.
 
 ## Levantarlo en local
 
@@ -248,7 +250,8 @@ REDIS_URL=redis://localhost:6380/0 go run ./cmd/api   # desde ms/
 
 - `DB_HOST` / `DB_PORT` → endpoint de la instancia RDS.
 - `DB_SSLMODE=require` (o `verify-full` + `DB_SSLROOTCERT=/ruta/al/global-bundle.pem`). Nunca `disable`.
-- `DB_PASSWORD` / `JWT_SECRET` → Secrets Manager / SSM Parameter Store.
+- `DB_PASSWORD` / `JWT_SECRET` / `GATEWAY_SECRET` → Secrets Manager / SSM Parameter Store.
+- `AUTH_JWKS_URL` / `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE` → tokens RS256 del servicio `auth` (ver más abajo).
 - `DB_MAX_OPEN_CONNS` / `DB_MAX_IDLE_CONNS` / `DB_CONN_MAX_LIFETIME_MINUTES` → según el `max_connections` de la instancia.
 
 Aplicar el esquema (sin el hook de `docker-entrypoint-initdb.d`):
@@ -257,6 +260,23 @@ Aplicar el esquema (sin el hook de `docker-entrypoint-initdb.d`):
 DB_HOST=<endpoint-rds> DB_PORT=5432 DB_USER=... DB_PASSWORD=... DB_NAME=... \
 DB_SSLMODE=require ./db/migrate.sh
 ```
+
+### Despliegue en EC2 (imagen + RDS)
+
+La imagen se construye fuera del EC2 (sin `GO_TAGS=dev`) y se sube a ECR; en el EC2 solo corre el `ms`,
+la base de datos es RDS (no hay Postgres en el contenedor):
+
+```bash
+docker build -t control-de-accesos ./ms                                      # imagen del ms
+docker build -f db/Dockerfile.migrate -t control-de-accesos-migrate .       # imagen de migraciones
+docker run --rm -e DB_HOST=... -e DB_USER=... -e DB_PASSWORD=... -e DB_NAME=... control-de-accesos-migrate
+cp .env.prod.example .env.prod   # completar MS_IMAGE, RDS, AUTH_JWKS_URL, ...
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+```
+
+`docker-compose.prod.yml` usa `ENV=production`, no publica Postgres ni monta seeds, limita la memoria a
+256 MB y rota los logs. `WITH_SEEDS=1` en la imagen de migraciones solo para entornos de demo.
+En el security group de RDS hay que permitir el 5432 desde el EC2; el ALB/proxy usa `/healthz`.
 
 ## Endpoints
 
@@ -284,6 +304,24 @@ DB_SSLMODE=require ./db/migrate.sh
 | GET | `/api/v1/dev/users` | ninguno | *(solo dev)* personas y membresías, leídas de la base |
 | GET | `/api/v1/dev/token` | ninguno | *(solo dev)* `?user_id=&complex_id=[&role=]` → JWT de esa persona en ese conjunto |
 | GET | `/healthz` | ninguno | Health check |
+
+## Tokens RS256 del servicio `auth`
+
+El `ms` verifica los access tokens de `auth` (RS256) con sus llaves públicas, sin llamarlo en cada petición:
+
+| Variable | Uso |
+|---|---|
+| `AUTH_JWKS_URL` | URL del JWKS de `auth` (p. ej. `http://<auth>:8081/.well-known/jwks.json`). Vacío = RS256 desactivado |
+| `AUTH_JWT_ISSUER` | debe ser igual al `JWT_ISSUER` de `auth` (obligatorio con `AUTH_JWKS_URL`) |
+| `AUTH_JWT_AUDIENCE` | por defecto `superapp-api` |
+
+- Se validan firma, `iss`, `aud`, `exp` y `nbf`; `sub` debe ser un UUID. Las llaves se guardan en caché y se
+  refrescan si llega un `kid` desconocido (rotación), como máximo cada 30 s; si `auth` cae, se siguen usando
+  las llaves en caché.
+- El token solo identifica al usuario. El front manda `X-Complex-ID` y el `ms` busca el rol en
+  `unit_members`/`complex_staff`: no pertenece → `403`; UUID inválido → `400`; sin header → petición sin conjunto.
+- Con `AUTH_JWKS_URL` configurado, `JWT_SECRET` y `GATEWAY_SECRET` son opcionales (hace falta al menos uno de los tres).
+- HS256 (dev/pruebas) y la identidad del gateway siguen funcionando igual.
 
 ## Identidad detrás del API Gateway
 

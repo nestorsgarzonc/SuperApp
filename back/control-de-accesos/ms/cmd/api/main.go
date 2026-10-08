@@ -28,8 +28,12 @@ func main() {
 
 	// A caller is authenticated either by a JWT or by the identity the
 	// gateway forwards; at least one way must be configured.
-	if cfg.JWTSecret == "" && cfg.GatewaySecret == "" {
-		logger.Error("JWT_SECRET or GATEWAY_SECRET is required")
+	if cfg.JWTSecret == "" && cfg.GatewaySecret == "" && cfg.AuthJWKSURL == "" {
+		logger.Error("JWT_SECRET, GATEWAY_SECRET or AUTH_JWKS_URL is required")
+		os.Exit(1)
+	}
+	if err := authmw.ConfigureRS256(authmw.RS256Config{JWKSURL: cfg.AuthJWKSURL, Issuer: cfg.AuthIssuer, Audience: cfg.AuthAudience}); err != nil {
+		logger.Error("invalid auth token configuration", "error", err)
 		os.Exit(1)
 	}
 	// The auth middleware reads these straight from the environment.
@@ -61,6 +65,7 @@ func main() {
 	defer db.Close()
 
 	dir := directory.NewRepository(db.DB)
+	authmw.SetComplexRoleResolver(dir.GetUserComplexRole)
 	accessRepo := access.NewPostgresRepository(db.DB)
 	auditRepo := audit.NewRepository(db.DB)
 	notifierClient, err := notifier.New(cfg.RedisURL, cfg.NotificationsStream, logger)

@@ -38,6 +38,10 @@ type JWTClaims struct {
 	ComplexID string `json:"complex_id,omitempty"`
 	IssuedAt  int64  `json:"iat"`
 	ExpiresAt int64  `json:"exp"`
+
+	// fromJWKS marks identity-only claims from an auth-issued RS256 token: the
+	// complex and role still have to be resolved from the memberships.
+	fromJWKS bool
 }
 
 // Headers the API gateway injects once it has validated the caller (see
@@ -102,10 +106,16 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		claims, err := ValidateJWT(parts[1])
+		claims, err := ValidateJWTContext(r.Context(), parts[1])
 		if err != nil {
 			respondWithError(w, http.StatusUnauthorized, fmt.Sprintf("Invalid token: %v", err))
 			return
+		}
+		if claims.fromJWKS {
+			if status, err := attachComplex(r, claims); err != nil {
+				respondWithError(w, status, err.Error())
+				return
+			}
 		}
 
 		ctx := withClaims(r.Context(), claims)
@@ -130,7 +140,13 @@ func OptionalAuthMiddleware(next http.Handler) http.Handler {
 		if authHeader != "" {
 			parts := strings.Split(authHeader, " ")
 			if len(parts) == 2 && parts[0] == "Bearer" {
-				if claims, err := ValidateJWT(parts[1]); err == nil {
+				if claims, err := ValidateJWTContext(r.Context(), parts[1]); err == nil {
+					if claims.fromJWKS {
+						if _, err := attachComplex(r, claims); err != nil {
+							next.ServeHTTP(w, r)
+							return
+						}
+					}
 					r = r.WithContext(withClaims(r.Context(), claims))
 				}
 			}
@@ -153,15 +169,20 @@ func withClaims(ctx context.Context, claims *JWTClaims) context.Context {
 
 // ValidateJWT validates and parses a JWT token
 func ValidateJWT(tokenString string) (*JWTClaims, error) {
+	return ValidateJWTContext(context.Background(), tokenString)
+}
+
+// ValidateJWTContext accepts HS256 tokens (dev/tests, signed with JWT_SECRET) and,
+// when ConfigureRS256 was called, RS256 tokens issued by the auth service.
+func ValidateJWTContext(ctx context.Context, tokenString string) (*JWTClaims, error) {
 	parts := strings.Split(tokenString, ".")
 	if len(parts) != 3 {
 		return nil, errors.New("invalid token format")
 	}
 
-	// Reject any token whose header doesn't declare HS256. The HMAC below is the
-	// real trust boundary, but pinning the algorithm explicitly closes the classic
-	// alg-confusion class (e.g. "none", or RS256→HS256 key-confusion) before we
-	// ever touch the signature. typ, when present, must be JWT.
+	// Only HS256 and RS256 are accepted, each verified with its own key material
+	// (HMAC secret vs. JWKS public key), so "none" and RS256→HS256 key confusion
+	// are closed before we ever touch the signature. typ, when present, must be JWT.
 	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode header: %w", err)
@@ -169,15 +190,20 @@ func ValidateJWT(tokenString string) (*JWTClaims, error) {
 	var header struct {
 		Alg string `json:"alg"`
 		Typ string `json:"typ"`
+		Kid string `json:"kid"`
 	}
 	if err := json.Unmarshal(headerBytes, &header); err != nil {
 		return nil, fmt.Errorf("failed to parse header: %w", err)
 	}
-	if header.Alg != "HS256" {
-		return nil, errors.New("unsupported JWT algorithm")
-	}
 	if header.Typ != "" && header.Typ != "JWT" {
 		return nil, errors.New("unsupported JWT type")
+	}
+	switch header.Alg {
+	case "HS256":
+	case "RS256":
+		return validateRS256(ctx, parts, header.Kid)
+	default:
+		return nil, errors.New("unsupported JWT algorithm")
 	}
 
 	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
