@@ -8,23 +8,30 @@ interface NavItem {
   to: string;
   label: string;
   icon: string;
+  /** Etiqueta para la barra inferior (móvil), si difiere. */
+  short?: string;
   end?: boolean;
-  permission: string;
+  /** Sin permiso: visible para cualquier usuario autenticado. */
+  permission?: string;
 }
 
 const HOME: NavItem = { to: '/', label: 'Inicio', icon: '\u2302', end: true, permission: 'access.home.read' };
 const AUTHORIZATIONS: NavItem = { to: '/autorizaciones', label: 'Accesos', icon: '\u25c7', permission: 'access.authorizations.read' };
 const BUILDING: NavItem = { to: '/edificio', label: 'Edificio', icon: '\u21c4', permission: 'access.building.read' };
 const HISTORY: NavItem = { to: '/historial', label: 'Historial', icon: '\u2630', permission: 'access.history.read' };
+const NOTIFICATIONS: NavItem = { to: '/notificaciones', label: 'Notificaciones', short: 'Avisos', icon: '\u2709' };
 const NAV: Record<Role, NavItem[]> = {
-  RESIDENT: [HOME, AUTHORIZATIONS, BUILDING],
-  OWNER: [HOME, AUTHORIZATIONS, BUILDING],
-  GUARD: [HOME, { to: '/porteria/validar', label: 'Validar', icon: '\u25c7', permission: 'access.pass.validate' }, { to: '/porteria/movimiento', label: 'Ingreso/Salida', icon: '\u21c4', permission: 'access.movement.register' }, HISTORY],
-  ADMIN: [HOME, HISTORY],
+  RESIDENT: [HOME, AUTHORIZATIONS, BUILDING, NOTIFICATIONS],
+  OWNER: [HOME, AUTHORIZATIONS, BUILDING, NOTIFICATIONS],
+  GUARD: [HOME, { to: '/porteria/validar', label: 'Validar', icon: '\u25c7', permission: 'access.pass.validate' }, { to: '/porteria/movimiento', label: 'Ingreso/Salida', icon: '\u21c4', permission: 'access.movement.register' }, HISTORY, NOTIFICATIONS],
+  ADMIN: [HOME, HISTORY, NOTIFICATIONS],
 };
 
-/** `complexSlot`: el chip/selector del conjunto activo (lo aporta el módulo de auth). */
-export function AppShell({ complexSlot, onLogout }: { complexSlot?: ReactNode; onLogout?: (all?: boolean) => Promise<void> }) {
+/**
+ * `complexSlot`: el chip/selector del conjunto activo (lo aporta el módulo de auth).
+ * `bellSlot`: la campana de notificaciones (la aporta el módulo de notificaciones).
+ */
+export function AppShell({ complexSlot, bellSlot, onLogout }: { complexSlot?: ReactNode; bellSlot?: ReactNode; onLogout?: (all?: boolean) => Promise<void> }) {
   const { profile, session } = useAuth();
   const { identity } = useIdentity();
   const nav = useNavigate();
@@ -32,7 +39,7 @@ export function AppShell({ complexSlot, onLogout }: { complexSlot?: ReactNode; o
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [logoutAll, setLogoutAll] = useState(false);
   if (!profile) return null;
-  const items = NAV[profile.role].filter(({ permission }) => identity?.permissions.includes(permission));
+  const items = NAV[profile.role].filter(({ permission }) => !permission || identity?.permissions.includes(permission));
 
   return (
     <div className="shell">
@@ -61,6 +68,7 @@ export function AppShell({ complexSlot, onLogout }: { complexSlot?: ReactNode; o
           )}
           {complexSlot ?? <span className="chip">{session?.complexName}</span>}
           <span className="spacer" />
+          {bellSlot}
           <div className="user">
             <div className="who">
               {profile.name}
@@ -80,7 +88,7 @@ export function AppShell({ complexSlot, onLogout }: { complexSlot?: ReactNode; o
         {items.map((i) => (
           <NavLink key={i.to} to={i.to} end={i.end}>
             <span className="ico">{i.icon}</span>
-            {i.label}
+            {i.short ?? i.label}
           </NavLink>
         ))}
       </nav>

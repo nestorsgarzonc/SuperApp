@@ -6,6 +6,8 @@ import { useAuth } from './features/auth/components/AuthContext';
 import { useAuth as useSession } from './shared/auth/AuthContext';
 import { AppShell } from './shared/layout/AppShell';
 import { accessControlRoutes } from './modules/control-de-accesos/routes';
+import { notificationRoutes } from './modules/notificaciones/routes';
+import { NotificationBell } from './modules/notificaciones/components/NotificationBell';
 import { AuthComplexSwitcher, AuthSessionBridge } from './features/auth/components/AuthIntegration';
 
 function App() {
@@ -17,7 +19,7 @@ function App() {
   if (identity && activeComplex) {
     if (!session) return <AuthSessionBridge />;
     return <Routes>
-      <Route element={<AppShell complexSlot={<AuthComplexSwitcher />} onLogout={onLogout} />}>{accessControlRoutes}</Route>
+      <Route element={<AppShell complexSlot={<AuthComplexSwitcher />} bellSlot={<NotificationBell />} onLogout={onLogout} />}>{accessControlRoutes}{notificationRoutes}</Route>
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>;
