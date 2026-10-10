@@ -15,3 +15,9 @@ func RegisterRoutes(r chi.Router, h *Handler) {
 		r.Patch("/notifications/{id}/read", h.MarkAsRead)
 	})
 }
+
+// RegisterInternalRoutes monta las rutas que solo llaman otros servicios; el
+// router que las recibe ya exige X-Internal-Secret.
+func RegisterInternalRoutes(r chi.Router, h *Handler) {
+	r.Post("/internal/notifications", h.Dispatch)
+}

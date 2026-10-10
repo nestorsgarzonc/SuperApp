@@ -41,10 +41,8 @@ flowchart TB
   GW --> MNO
 
   GW -. "valida token" .-> MAU
-  BUS[["Redis Stream<br/>notifications.requested"]]
-  MCA -. "evento de acceso" .-> BUS
-  MAU -. "evento de cuenta" .-> BUS
-  BUS -. "consume" .-> MNO
+  MCA -. "POST /internal/notifications" .-> MNO
+  MAU -. "POST /internal/notifications" .-> MNO
 
   INF["infra/ — IaC · despliegue"]
   INF -.-> front
@@ -79,7 +77,7 @@ SuperApp/
     ├── architecture.md
     ├── api-gateway.md       # contrato del gateway (por implementar)
     ├── control-de-accesos.md
-    ├── events.md            # Redis Streams: convenciones y esquemas
+    ├── events.md            # solicitudes de notificación entre servicios
     └── internal-apis.md     # endpoints /internal/* entre servicios
 ```
 
@@ -91,21 +89,22 @@ SuperApp/
 | `back/api-gateway` | Punto de entrada único: enrutamiento, validación de token, rate limiting. Sin base de datos. | `auth` |
 | `back/auth` | Identidad, credenciales, emisión y validación de tokens | — |
 | [`back/control-de-accesos`](control-de-accesos.md) | Permisos, roles y registro de entradas/salidas | `auth` |
-| `back/notificaciones` | Entrega de notificaciones: consume eventos de Redis, bandeja, push (FCM), preferencias y tokens de dispositivos. Ver `back/notificaciones/README.md` | Redis |
+| `back/notificaciones` | Entrega de notificaciones: recibe solicitudes por `/internal/notifications`, bandeja, push (FCM), preferencias y tokens de dispositivos. Ver `back/notificaciones/README.md` | — |
 
 ## Convenciones
 
 - `ms/` contiene el servicio desplegable del feature.
 - `db/` contiene únicamente los artefactos de datos de ese feature
-  (migraciones, semillas, esquema). Una base de datos por feature.
+  (migraciones, semillas, esquema). En producción todos los features comparten
+  una base de datos (RDS) y cada uno usa su propio schema y rol de Postgres.
 - `api-gateway` no tiene `db/`: es sin estado por diseño.
 - El frontend nunca llama a un `ms` directamente, siempre vía `api-gateway`.
 - Las carpetas se mantienen en git con `.gitkeep` hasta que tengan código.
 - Los endpoints entre servicios viven bajo `/internal/*`, nunca se exponen por el
   gateway y se autentican con `X-Internal-Secret` (ver `internal-apis.md`).
-- Los `ms` se comunican de forma asíncrona por Redis Streams (un stream por
-  consumidor, p. ej. `notifications.requested`). Los eventos llevan un
-  `event_id` y el consumidor es idempotente (ver `events.md`).
+- Para notificar, un `ms` llama a `POST /internal/notifications` de
+  notificaciones. Cada solicitud lleva un `event_id` y notificaciones es
+  idempotente sobre él (ver `events.md`).
 - Los `ms` confían en los headers de identidad (`X-User-ID`, `X-Complex-ID`,
   `X-Complex-Role`) que inyecta el `api-gateway`, protegidos con
   `X-Gateway-Secret` (ver `api-gateway.md`).

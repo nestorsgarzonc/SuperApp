@@ -1,30 +1,28 @@
-# Eventos entre servicios (Redis Streams)
+# Solicitudes de notificación entre servicios
 
-La comunicación asíncrona entre `ms` usa **Redis Streams** con consumer groups.
-Un servicio publica; el servicio dueño del stream consume.
+Los `ms` no comparten bus de mensajes: un servicio que necesita notificar a
+usuarios llama por HTTP interno a notificaciones, `POST /internal/notifications`
+con `X-Internal-Secret` (reglas de `/internal/*` en
+[`internal-apis.md`](internal-apis.md); respuestas y errores en
+[`back/notificaciones/API.md`](../back/notificaciones/API.md#interno)).
 
 ## Convenciones
 
 | Regla | Detalle |
 |---|---|
-| Nombre del stream | `<dominio>.<hecho-o-comando>`, p. ej. `notifications.requested` |
-| Dueño | el servicio que **consume** define el esquema y crea el consumer group |
-| Mensaje | un solo campo `payload` con JSON |
-| `event_id` | obligatorio, único por evento (UUID v7 recomendado). Es la llave de idempotencia |
-| `source` | nombre del servicio que publica, para auditoría |
-| Entrega | at-least-once: un consumidor **debe** ser idempotente sobre `event_id` |
-| Reintentos | errores transitorios se reintentan (máx. 5 entregas) |
-| Inválidos | van a `<stream>.dlq` con el `error` y el `original_id`; no se reintentan |
-| Compatibilidad | solo cambios aditivos. Un campo nuevo es opcional para el consumidor; romper el esquema exige un stream nuevo (`...v2`) |
+| `event_id` | obligatorio, único por solicitud (UUID v7 recomendado). Es la llave de idempotencia |
+| `source` | nombre del servicio que la envía, para auditoría |
+| Idempotencia | un `event_id` repetido responde `202` y no duplica la bandeja: reintentar es seguro |
+| Reintentos | el productor reintenta ante `5xx`, timeout o error de red, **con el mismo `event_id`** |
+| Inválidos | `422`: no se reintentan; el productor registra el error |
+| Compatibilidad | solo cambios aditivos. Un campo nuevo es opcional para notificaciones |
 
-Publicar **después** de confirmar la transacción propia. Si la publicación
-falla, reintentar desde el productor (o usar un outbox si el evento no se puede
-perder). Un `event_id` repetido es seguro: el consumidor lo descarta.
+Llamar **después** de confirmar la transacción propia. La llamada es
+best-effort: si notificaciones no responde, el flujo del productor (p. ej.
+registrar un ingreso) no debe fallar. Si la notificación no se puede perder,
+guardar la solicitud en un outbox propio y reintentar desde ahí.
 
-## `notifications.requested`
-
-**Dueño:** notificaciones. **Productores:** cualquier servicio que necesite
-notificar a usuarios.
+## Cuerpo
 
 ```json
 {
@@ -70,13 +68,13 @@ silenciar en sus preferencias.
   nunca esperan detrás de un envío masivo.
 - Un evento de un grupo silenciado no llega a la bandeja ni al push de ese
   usuario.
-- Una categoría desconocida manda el evento a la DLQ. Para añadir una categoría,
+- Una categoría desconocida se rechaza con `422`. Para añadir una categoría,
   agrégala primero en `back/notificaciones/ms/internal/features/preferences/models.go`.
 
-### Publicar desde Go
+### Enviar desde Go
 
 ```go
-payload, _ := json.Marshal(map[string]any{
+body, _ := json.Marshal(map[string]any{
 	"event_id":   uuid.Must(uuid.NewV7()).String(),
 	"source":     "control-de-accesos",
 	"complex_id": complexID,
@@ -86,33 +84,20 @@ payload, _ := json.Marshal(map[string]any{
 	"body":       visitor.Name + " está en la entrada",
 	"data":       map[string]any{"deep_link": "/visitors/" + visitor.ID.String()},
 })
-err := rdb.XAdd(ctx, &redis.XAddArgs{
-	Stream: "notifications.requested",
-	MaxLen: 100_000, Approx: true, // acota el tamaño del stream
-	Values: map[string]any{"payload": string(payload)},
-}).Err()
+req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+	notificacionesURL+"/internal/notifications", bytes.NewReader(body))
+req.Header.Set("Content-Type", "application/json")
+req.Header.Set("X-Internal-Secret", internalSecret)
+resp, err := httpClient.Do(req) // 202 = aceptada
 ```
+
+Implementación de referencia (timeout, reintentos, best-effort):
+`back/control-de-accesos/ms/internal/notifier`.
 
 Desde la terminal:
 
 ```bash
-redis-cli XADD notifications.requested '*' payload '{"event_id":"test-1","source":"manual","complex_id":null,"user_ids":["<uuid>"],"category":"ACCOUNT","title":"Hola","body":"Prueba"}'
+curl -s -X POST localhost:8083/internal/notifications \
+  -H "X-Internal-Secret: $INTERNAL_SECRET" \
+  -d '{"event_id":"test-1","source":"manual","complex_id":null,"user_ids":["<uuid>"],"category":"ACCOUNT","title":"Hola","body":"Prueba"}'
 ```
-
-## Operación
-
-```bash
-# Mensajes sin confirmar (en reintento) por consumidor
-redis-cli XPENDING notifications.requested notificaciones
-
-# Revisar la DLQ
-redis-cli XRANGE notifications.requested.dlq - + COUNT 20
-
-# Reprocesar un mensaje de la DLQ después de corregir la causa:
-# copiar su payload a un XADD nuevo y borrarlo de la DLQ
-redis-cli XADD notifications.requested '*' payload '<payload>'
-redis-cli XDEL notifications.requested.dlq <id>
-```
-
-Un mensaje que se reprocesa con el mismo `event_id` que ya se guardó se
-descarta (idempotencia). Solo se reprocesan eventos que nunca se persistieron.

@@ -32,10 +32,10 @@ type Config struct {
 	AuthJWKSURL  string
 	AuthIssuer   string
 	AuthAudience string
-	// RedisURL is where notification requests are published for the
-	// notificaciones service; NotificationsStream is the stream name.
-	RedisURL            string
-	NotificationsStream string
+	// NotificacionesURL is the base URL of the notificaciones service, which
+	// receives notification requests on POST /internal/notifications
+	// (authenticated with InternalSecret).
+	NotificacionesURL string
 
 	// QR system circuit breaker.
 	QRBreakerFailures    int
@@ -68,9 +68,8 @@ func Load() Config {
 		AuthJWKSURL:           getEnv("AUTH_JWKS_URL", ""),
 		AuthIssuer:            getEnv("AUTH_JWT_ISSUER", ""),
 		AuthAudience:          getEnv("AUTH_JWT_AUDIENCE", "superapp-api"),
-		// Empty REDIS_URL disables outbound notifications (client no-ops).
-		RedisURL:            getEnv("REDIS_URL", ""),
-		NotificationsStream: getEnv("NOTIFICATIONS_STREAM", "notifications.requested"),
+		// Empty NOTIFICACIONES_URL disables outbound notifications (client no-ops).
+		NotificacionesURL: getEnv("NOTIFICACIONES_URL", ""),
 
 		QRBreakerFailures:    getEnvInt("QR_BREAKER_FAILURES", 3),
 		QRBreakerOpenSeconds: getEnvInt("QR_BREAKER_OPEN_SECONDS", 10),

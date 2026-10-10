@@ -77,3 +77,19 @@ func (h *Handler) MarkAllAsRead(w http.ResponseWriter, r *http.Request) {
 	}
 	apperr.RespondOK(w, map[string]int64{"marked_count": count})
 }
+
+// Dispatch recibe una solicitud de notificación de otro servicio (POST
+// /internal/notifications). Idempotente por event_id: reenviar el mismo evento
+// responde 202 sin duplicar la bandeja, así el productor puede reintentar.
+func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request) {
+	var in DispatchInput
+	if err := apperr.DecodeJSON(r, &in); err != nil {
+		apperr.RespondError(w, h.logger, err)
+		return
+	}
+	if err := h.service.Dispatch(r.Context(), in); err != nil {
+		apperr.RespondError(w, h.logger, err)
+		return
+	}
+	apperr.RespondAccepted(w, map[string]string{"event_id": in.EventID})
+}

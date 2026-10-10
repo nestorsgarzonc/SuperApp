@@ -13,7 +13,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -tags "${GO_TAGS}" -o /out/api ./cmd/api
 
 FROM alpine:3.23
-# ca-certificates: TLS hacia RDS (DB_SSLMODE=require/verify-full) y Redis (rediss://).
+# ca-certificates: TLS hacia RDS (DB_SSLMODE=require/verify-full).
 RUN apk add --no-cache ca-certificates \
     && addgroup -S app && adduser -S -H -G app app
 COPY --from=builder /out/api /usr/local/bin/api

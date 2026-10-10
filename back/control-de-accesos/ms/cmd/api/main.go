@@ -68,11 +68,7 @@ func main() {
 	authmw.SetComplexRoleResolver(dir.GetUserComplexRole)
 	accessRepo := access.NewPostgresRepository(db.DB)
 	auditRepo := audit.NewRepository(db.DB)
-	notifierClient, err := notifier.New(cfg.RedisURL, cfg.NotificationsStream, logger)
-	if err != nil {
-		logger.Error("invalid REDIS_URL", "error", err)
-		os.Exit(1)
-	}
+	notifierClient := notifier.New(cfg.NotificacionesURL, cfg.InternalSecret, logger)
 	defer notifierClient.Close()
 	// QR system behind a circuit breaker. In development it is simulated so its
 	// failure can be provoked from the dev tools; elsewhere codes are issued locally.

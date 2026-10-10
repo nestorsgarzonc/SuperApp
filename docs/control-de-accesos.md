@@ -29,9 +29,9 @@ el 1 y guardia en el 2). Los datos de demostración están en `db/seeds/001_demo
 
 `ms/internal/accesslog`: bitácora de portería (ver *Reglas de negocio*).
 
-`ms/internal/notifier`: publica en el stream de Redis `notifications.requested` (contrato de
-`notificaciones`) al crear/validar/cancelar un grant, dirigido a los residentes de la unidad.
-Sin `REDIS_URL` o con error de Redis → no-op, no bloquea la operación.
+`ms/internal/notifier`: llama a `POST /internal/notifications` de `notificaciones` al
+crear/validar/cancelar un grant, dirigido a los residentes de la unidad. Sin
+`NOTIFICACIONES_URL` o si notificaciones no responde → no-op, no bloquea la operación.
 
 `ms/internal/audit`: tabla `audit_log` append-only (triggers `BEFORE UPDATE/DELETE`
 que rechazan la operación a nivel de base de datos, no solo por disciplina de
@@ -238,11 +238,11 @@ JWT_SECRET=<el del ms> node test/isolation.mjs                      # BASE=http:
 cd ms && go test ./...                       # validaciones de accesslog + middleware de personal
 ```
 
-Para probar las notificaciones contra el microservicio real (`back/notificaciones`, Redis en `localhost:6380`):
+Para probar las notificaciones contra el microservicio real (`back/notificaciones` en `localhost:8083`):
 
 ```bash
-cd ../notificaciones && docker compose up -d db redis && docker compose --profile tools run --rm migrate && docker compose up -d ms
-REDIS_URL=redis://localhost:6380/0 go run ./cmd/api   # desde ms/
+cd ../notificaciones && docker compose up -d db && docker compose --profile tools run --rm migrate && docker compose up -d ms
+NOTIFICACIONES_URL=http://localhost:8083 go run ./cmd/api   # desde ms/
 # la bandeja del residente: GET localhost:8083/users/me/notifications (headers X-User-ID y X-Complex-ID)
 ```
 
@@ -349,8 +349,9 @@ el front los obtiene de `/me/memberships` después de iniciar sesión.
 
 ## Eventos salientes (hacia `notificaciones`)
 
-`ms/internal/notifier` publica en el stream de Redis `notifications.requested` (contrato en
-[`docs/events.md`](events.md)), best-effort. Los destinatarios son los miembros de la unidad del
+`ms/internal/notifier` llama a `POST /internal/notifications` (contrato en
+[`docs/events.md`](events.md)), best-effort: 3 s de timeout por intento y hasta 3 intentos
+ante error de red o `5xx`, con el mismo `event_id`. Los destinatarios son los miembros de la unidad del
 grant (`unit_members`), sin el residente que originó la acción:
 
 | Momento | Categoría | Destinatarios | Se dispara en |
@@ -360,7 +361,7 @@ grant (`unit_members`), sin el residente que originó la acción:
 | Visitante validado en portería | `VISITOR` | todos los residentes de la unidad | `ValidateAccess` (solo si el resultado es válido) |
 
 Cada evento lleva `event_id` (UUID v7), `source: control-de-accesos`, `complex_id`, `user_ids`,
-`title`, `body` y `data` (`event`, `grant_id`, `unit_id`, `method`). Sin `REDIS_URL` el cliente no hace nada.
+`title`, `body` y `data` (`event`, `grant_id`, `unit_id`, `method`). Sin `NOTIFICACIONES_URL` el cliente no hace nada.
 
 ## Entrada y salida de residentes
 
@@ -441,7 +442,7 @@ Resultado de la revisión de código; cada punto tiene prueba (`test/hardening.m
 
 ## Pendiente
 
-- Las notificaciones salientes son best-effort: si Redis no responde el evento se pierde (se
-  registra en el log). Para no perderlos haría falta un outbox transaccional; los nombres
-  `AccessGranted`/`VisitorEntered`/… del diseño original no se usan: se publica el contrato
-  `notifications.requested` que define `notificaciones` (ver `docs/events.md`).
+- Las notificaciones salientes son best-effort: si notificaciones no responde tras los
+  reintentos, el evento se pierde (se registra en el log). Para no perderlos haría falta un
+  outbox transaccional; los nombres `AccessGranted`/`VisitorEntered`/… del diseño original no
+  se usan: se envía el contrato de `POST /internal/notifications` (ver `docs/events.md`).

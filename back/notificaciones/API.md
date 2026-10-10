@@ -1,9 +1,9 @@
 # notificaciones — API HTTP
 
-Referencia de los endpoints del servicio. Las notificaciones **no se crean por
-HTTP**: llegan como eventos `notifications.requested` (ver
-[`docs/events.md`](../../docs/events.md)). Por HTTP solo se consulta la bandeja,
-se configuran preferencias y se registran dispositivos.
+Referencia de los endpoints del servicio. Las apps consultan la bandeja,
+configuran preferencias y registran dispositivos a través del gateway. Las
+notificaciones las crean **otros servicios** con
+[`POST /internal/notifications`](#interno), que el gateway nunca enruta.
 
 ## Convenciones
 
@@ -251,16 +251,62 @@ Borra un dispositivo por `id` (p. ej. desde una pantalla de "mis dispositivos").
 
 ---
 
+## Interno
+
+Solo para otros servicios de la red privada (reglas comunes en
+[`docs/internal-apis.md`](../../docs/internal-apis.md)). Se autentican con
+`X-Internal-Secret` (`INTERNAL_SECRET`); no llevan `X-User-ID` ni pasan por el
+gateway.
+
+### `POST /internal/notifications`
+
+Crea una notificación para uno o varios usuarios: la guarda en sus bandejas y
+envía el push en segundo plano.
+
+```json
+{
+  "event_id": "0192f1c4-6b7e-7c3a-9d1e-5f2a8b3c4d5e",
+  "source": "control-de-accesos",
+  "complex_id": "0192f1c4-0000-7000-8000-000000000001",
+  "user_ids": ["0192f1c4-0000-7000-8000-000000000002"],
+  "category": "VISITOR",
+  "title": "Visitante en portería",
+  "body": "Juan Pérez está en la entrada",
+  "data": { "deep_link": "/visitors/0192…" }
+}
+```
+
+| Campo | |
+|---|---|
+| `event_id` | requerido; clave de idempotencia (un UUIDv7 nuevo por evento) |
+| `source` | servicio que la solicita |
+| `complex_id` | `null` = notificación de cuenta (aparece en todos los conjuntos) |
+| `user_ids` | requerido; 1 o más UUID (los repetidos se ignoran) |
+| `category` | requerida; ver [grupos](#grupos) |
+| `title` / `body` | requeridos; se recortan a 200 / 2000 caracteres |
+| `data` | opcional; objeto libre (`deep_link` para navegar) |
+
+| Respuesta | Caso |
+|---|---|
+| `202` | `{ "success": true, "data": { "event_id": "…" } }`; también si el `event_id` ya se había recibido (no se duplica) |
+| `401` `AUTH_001` | falta o no coincide `X-Internal-Secret` |
+| `422` `VAL_001` | JSON inválido, categoría desconocida, sin destinatarios, falta `title`/`body`. No reintentar |
+| `500` `SYS_001` | error interno. Reintentar con el **mismo** `event_id` |
+
+Los destinatarios que silenciaron el grupo de la categoría se omiten.
+
+---
+
 ## Operación
 
 ### `GET /healthz`
 
-Sin autenticación; lo usa el balanceador como health check. Comprueba Postgres y Redis.
+Sin autenticación; lo usa el balanceador como health check. Comprueba Postgres.
 
 | Respuesta | |
 |---|---|
 | `200` | `{ "success": true, "data": { "status": "ok" } }` |
-| `503` `SYS_005` | `database unavailable` o `redis unavailable` |
+| `503` `SYS_005` | `database unavailable` |
 
 ---
 
@@ -293,5 +339,10 @@ curl -s -X PUT localhost:8083/me/notification-preferences -H "X-User-ID: $U" \
 ```
 
 Con `ENV=development` y sin `GATEWAY_SECRET` no se exige `X-Gateway-Secret`.
-Para tener algo en la bandeja, publicar un evento como en
-[`docs/events.md`](../../docs/events.md#publicar-desde-go).
+Para tener algo en la bandeja (sin `X-Internal-Secret` en desarrollo):
+
+```bash
+curl -s -X POST localhost:8083/internal/notifications -d '{
+  "event_id":"'$(uuidgen)'","source":"manual","complex_id":"'$C'","user_ids":["'$U'"],
+  "category":"VISITOR","title":"Visitante en portería","body":"Prueba"}'
+```

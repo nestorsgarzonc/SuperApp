@@ -14,15 +14,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	_ "github.com/lib/pq"
-	"github.com/redis/go-redis/v9"
 
 	"superapp/notificaciones/internal/config"
-	"superapp/notificaciones/internal/events"
 	"superapp/notificaciones/internal/features/devices"
 	"superapp/notificaciones/internal/features/notifications"
 	"superapp/notificaciones/internal/features/preferences"
 	"superapp/notificaciones/internal/platform/apperr"
 	"superapp/notificaciones/internal/platform/gatewayauth"
+	"superapp/notificaciones/internal/platform/internalauth"
 	"superapp/notificaciones/internal/platform/push"
 )
 
@@ -48,18 +47,12 @@ func run(logger *slog.Logger) error {
 	}
 	defer db.Close()
 
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(25)
+	// La base de RDS es compartida por todos los ms: pool pequeño y configurable.
+	db.SetMaxOpenConns(cfg.DBMaxOpenConns)
+	db.SetMaxIdleConns(cfg.DBMaxIdleConns)
 	if err := db.PingContext(ctx); err != nil {
 		return err
 	}
-
-	redisOpts, err := redis.ParseURL(cfg.RedisURL)
-	if err != nil {
-		return err
-	}
-	rdb := redis.NewClient(redisOpts)
-	defer rdb.Close()
 
 	var pusher push.Sender
 	if cfg.FirebaseCredentials != "" {
@@ -86,22 +79,19 @@ func run(logger *slog.Logger) error {
 			apperr.RespondError(w, logger, apperr.Unavailable("database unavailable", err))
 			return
 		}
-		if err := rdb.Ping(r.Context()).Err(); err != nil {
-			apperr.RespondError(w, logger, apperr.Unavailable("redis unavailable", err))
-			return
-		}
 		apperr.RespondOK(w, map[string]string{"status": "ok"})
+	})
+	notifHandler := notifications.NewHandler(notifSvc, logger)
+	r.Group(func(r chi.Router) {
+		r.Use(internalauth.Middleware(cfg.InternalSecret))
+		notifications.RegisterInternalRoutes(r, notifHandler)
 	})
 	r.Group(func(r chi.Router) {
 		r.Use(gatewayauth.Middleware(cfg.GatewaySecret))
-		notifications.RegisterRoutes(r, notifications.NewHandler(notifSvc, logger))
+		notifications.RegisterRoutes(r, notifHandler)
 		preferences.RegisterRoutes(r, preferences.NewHandler(preferences.NewService(prefsRepo), logger))
 		devices.RegisterRoutes(r, devices.NewHandler(devices.NewService(devicesRepo), logger))
 	})
-
-	consumer := events.NewConsumer(rdb, cfg.EventsStream, cfg.EventsGroup, cfg.ConsumerName, notifSvc, logger)
-	consumerErr := make(chan error, 1)
-	go func() { consumerErr <- consumer.Run(ctx) }()
 
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: r, ReadHeaderTimeout: 10 * time.Second}
 	serverErr := make(chan error, 1)
@@ -116,10 +106,6 @@ func run(logger *slog.Logger) error {
 	case <-ctx.Done():
 	case err := <-serverErr:
 		return err
-	case err := <-consumerErr:
-		if err != nil {
-			return err
-		}
 	}
 
 	logger.Info("shutting down")

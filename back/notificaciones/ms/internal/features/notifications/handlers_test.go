@@ -112,3 +112,40 @@ func TestHandlers_InternalErrorsDoNotLeakCause(t *testing.T) {
 type assertErr string
 
 func (e assertErr) Error() string { return string(e) }
+
+type dispatchService struct {
+	Service
+	got DispatchInput
+	err error
+}
+
+func (d *dispatchService) Dispatch(_ context.Context, in DispatchInput) error {
+	d.got = in
+	return d.err
+}
+
+func postInternal(t *testing.T, svc Service, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := chi.NewRouter()
+	RegisterInternalRoutes(r, NewHandler(svc, slog.New(slog.DiscardHandler)))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/notifications", strings.NewReader(body)))
+	return rec
+}
+
+func TestDispatch_AcceptsEvent(t *testing.T) {
+	svc := &dispatchService{}
+	user := uuid.New()
+	rec := postInternal(t, svc, `{"event_id":"evt-1","source":"control-de-accesos","user_ids":["`+user.String()+`"],"category":"VISITOR","title":"t","body":"b"}`)
+
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Equal(t, "evt-1", svc.got.EventID)
+	assert.Equal(t, []uuid.UUID{user}, svc.got.UserIDs)
+	assert.Equal(t, "VISITOR", svc.got.Category)
+}
+
+func TestDispatch_Errors(t *testing.T) {
+	assert.Equal(t, http.StatusUnprocessableEntity, postInternal(t, &dispatchService{}, `{not json`).Code)
+	assert.Equal(t, http.StatusUnprocessableEntity,
+		postInternal(t, &dispatchService{err: apperr.Field("category", "Unknown category")}, `{}`).Code)
+}
