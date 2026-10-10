@@ -24,12 +24,14 @@ test-integration: migrate ## SQL against a real database
 	cd ms && TEST_DATABASE_URL='$(DB_URL)' \
 		go test -race -count=1 -tags integration ./internal/integration/...
 
-IMAGE    ?=
-PLATFORM ?= linux/amd64
+IMAGE     ?=
+PLATFORM  ?= linux/amd64
+PLATFORMS ?= linux/amd64,linux/arm64
+TAG       ?= $(shell git rev-parse --short HEAD)$(shell git diff --quiet HEAD -- ms || echo -dirty)
 
-image: ## build + push the production image: make image IMAGE=<registry>/notificaciones:<tag> [PLATFORM=linux/arm64]
-	@test -n "$(IMAGE)" || (echo "IMAGE is required" && exit 1)
-	docker buildx build --platform $(PLATFORM) -t $(IMAGE) --push ms
+image: ## build (amd64 + arm64) and push: make image IMAGE=<usuario>/notificaciones  → :<commit> y :latest
+	@test -n "$(IMAGE)" || (echo "IMAGE is required (p. ej. nestorsgarzonc/superapp-notificaciones)" && exit 1)
+	docker buildx build --platform $(PLATFORMS) -t $(IMAGE):$(TAG) -t $(IMAGE):latest --push ms
 
 HOST ?=
 KEY  ?=
