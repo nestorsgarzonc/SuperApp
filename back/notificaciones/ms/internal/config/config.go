@@ -16,6 +16,7 @@ type Config struct {
 	InternalSecret      string
 	FirebaseCredentials string
 	FirebaseProjectID   string
+	WebAppURL           string
 }
 
 func Load() (Config, error) {
@@ -29,6 +30,7 @@ func Load() (Config, error) {
 		InternalSecret:      os.Getenv("INTERNAL_SECRET"),
 		FirebaseCredentials: os.Getenv("FIREBASE_CREDENTIALS_FILE"),
 		FirebaseProjectID:   os.Getenv("FIREBASE_PROJECT_ID"),
+		WebAppURL:           os.Getenv("WEB_APP_URL"),
 	}
 
 	if c.DatabaseURL == "" {

@@ -45,6 +45,13 @@ export const GROUP_LABEL: Record<NotificationGroup, string> = {
   SYSTEM: 'Sistema',
 };
 
+export interface DeviceRegistration {
+  platform: 'IOS' | 'ANDROID' | 'WEB';
+  push_token: string;
+  device_name?: string;
+  app_version?: string;
+}
+
 export interface InboxQuery {
   unread?: boolean;
   groups?: NotificationGroup[];
@@ -69,4 +76,7 @@ export const notificationsApi = {
       method: 'PUT',
       body: { preferences: [{ group, enabled }] },
     }).then((r) => r.preferences),
+  registerDevice: (device: DeviceRegistration) => api<unknown>('/me/devices', { method: 'POST', body: device }),
+  unregisterDevice: (push_token: string) =>
+    api<void>('/me/devices/unregister', { method: 'POST', body: { push_token } }),
 };

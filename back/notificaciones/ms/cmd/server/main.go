@@ -56,7 +56,7 @@ func run(logger *slog.Logger) error {
 
 	var pusher push.Sender
 	if cfg.FirebaseCredentials != "" {
-		fcm, err := push.NewFCM(ctx, cfg.FirebaseCredentials, cfg.FirebaseProjectID)
+		fcm, err := push.NewFCM(ctx, cfg.FirebaseCredentials, cfg.FirebaseProjectID, cfg.WebAppURL)
 		if err != nil {
 			return err
 		}

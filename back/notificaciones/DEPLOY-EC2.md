@@ -139,6 +139,43 @@ INTERNAL_SECRET=<el mismo valor>
 Y en `sg-notificaciones`, el puerto 8083 debe aceptar el security group de
 control-de-accesos.
 
+## 8. Push con Firebase (opcional)
+
+Sin esto el ms funciona igual, solo con la bandeja (log: `push disabled, inbox only`).
+
+**En Firebase console** (un solo proyecto para back y front):
+
+1. *Project settings → Service accounts → Generate new private key*: descarga
+   un JSON. Es un secreto: no va al repo.
+2. *Project settings → General → Your apps → Add app → Web*: copia
+   `apiKey`, `authDomain`, `projectId`, `messagingSenderId`, `appId`.
+3. *Project settings → Cloud Messaging → Web Push certificates → Generate key pair*:
+   copia la clave pública (VAPID).
+
+**Backend** (desde tu Mac, luego en el EC2):
+
+```bash
+scp -i ~/.ssh/<key>.pem <descarga>.json ec2-user@<ip-publica>:~/notificaciones/secrets/firebase.json
+ssh -i ~/.ssh/<key>.pem ec2-user@<ip-publica> 'chmod 644 ~/notificaciones/secrets/firebase.json'
+```
+
+En `.env.prod`:
+
+```
+FIREBASE_CREDENTIALS_FILE=/secrets/firebase.json
+FIREBASE_PROJECT_ID=<projectId>
+WEB_APP_URL=https://<dominio-del-front>
+```
+
+`docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --force-recreate`
+y comprobar que el log ya no dice `push disabled`. (644 porque el contenedor
+corre sin root y debe poder leerlo; el EC2 solo lo usa `ec2-user`.)
+
+**Front**: las `VITE_FIREBASE_*` de `front/.env.example` con los datos de los
+pasos 2 y 3, antes de `npm run build`. El push web exige que el front se sirva
+por **HTTPS** (o `localhost` en desarrollo). El usuario lo activa en
+*Notificaciones → Preferencias → Notificaciones en este navegador*.
+
 ## Actualizar a una versión nueva
 
 ```bash
@@ -158,3 +195,5 @@ ssh -i ~/.ssh/<key>.pem ec2-user@<ip-publica> 'cd ~/notificaciones && \
 | `function uuidv7() does not exist` | la RDS es PostgreSQL < 18 |
 | `exec format error` | la imagen se construyó para otra arquitectura (`PLATFORM`) |
 | `INTERNAL_SECRET is required` / `GATEWAY_SECRET is required` | falta en `.env.prod` |
+| `failed to initialize firebase app` | ruta de `FIREBASE_CREDENTIALS_FILE` mal escrita o el JSON sin permiso 644 |
+| Push en estado `PUSH_FAILED` | `FIREBASE_PROJECT_ID` no es el del JSON, o la API *Firebase Cloud Messaging* está apagada en Google Cloud |

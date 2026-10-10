@@ -21,6 +21,7 @@ services:
       INTERNAL_SECRET: ${INTERNAL_SECRET:?set INTERNAL_SECRET}
       FIREBASE_CREDENTIALS_FILE: ${FIREBASE_CREDENTIALS_FILE:-}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      WEB_APP_URL: ${WEB_APP_URL:-}
     volumes:
       # Credencial de FCM (opcional): ./secrets/firebase.json → /secrets/firebase.json
       - ./secrets:/secrets:ro

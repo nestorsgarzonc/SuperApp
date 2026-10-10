@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAsync } from '../../../shared/useAsync';
 import { ErrorBox, Loading, PageHead } from '../../../shared/ui';
 import { notificationsApi, type NotificationGroup, type PreferenceItem } from '../api';
+import { BrowserPushCard } from '../components/BrowserPushCard';
 
 const COPY: Record<NotificationGroup, { title: string; detail: string }> = {
   ACCESS_CONTROL: { title: 'Control de acceso', detail: 'Autorizaciones, ingresos y salidas de tus visitantes' },
@@ -41,6 +42,7 @@ export function NotificationPreferencesPage() {
   return (
     <>
       <PageHead title="Preferencias de notificaciones" subtitle="Elige qué avisos quieres recibir" />
+      <BrowserPushCard />
       {loading && !prefs && <Loading />}
       {error && <ErrorBox message={error} onRetry={reload} />}
       {saveError && (

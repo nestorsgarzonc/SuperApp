@@ -1,5 +1,8 @@
 DB_URL    := postgres://notificaciones:notificaciones@localhost:5433/notificaciones?sslmode=disable
 
+# Push local si existe secrets/firebase.json (gitignored); si no, solo bandeja.
+FIREBASE_ENV := $(if $(wildcard secrets/firebase.json),FIREBASE_CREDENTIALS_FILE=$(CURDIR)/secrets/firebase.json FIREBASE_PROJECT_ID=$(shell python3 -c "import json;print(json.load(open('secrets/firebase.json'))['project_id'])"))
+
 .PHONY: up migrate down run test test-integration image ship
 
 up: ## start db
@@ -12,7 +15,7 @@ down: ## stop and delete local containers
 	docker compose down
 
 run: migrate ## run the service against the local db
-	cd ms && ENV=development DATABASE_URL='$(DB_URL)' go run ./cmd/server
+	cd ms && ENV=development DATABASE_URL='$(DB_URL)' $(FIREBASE_ENV) go run ./cmd/server
 
 test: ## unit tests (no infrastructure needed)
 	cd ms && go test -race ./...

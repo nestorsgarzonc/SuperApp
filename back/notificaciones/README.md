@@ -44,6 +44,7 @@ make down
 | `GATEWAY_SECRET` | — | debe coincidir con `X-Gateway-Secret` que envía el gateway |
 | `INTERNAL_SECRET` | — | debe coincidir con `X-Internal-Secret` que envían los demás ms |
 | `FIREBASE_CREDENTIALS_FILE` / `FIREBASE_PROJECT_ID` | — | vacío = sin push, solo bandeja |
+| `WEB_APP_URL` | — | URL https del front; el clic en un push web abre `WEB_APP_URL` + `deep_link` |
 
 ## Autenticación
 
