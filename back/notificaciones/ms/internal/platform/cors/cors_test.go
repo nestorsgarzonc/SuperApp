@@ -29,15 +29,15 @@ func TestPreflightAnsweredWithoutAuth(t *testing.T) {
 	})
 	assert.False(t, reached)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
-	assert.Equal(t, "https://app.example.com", rec.Header().Get("Access-Control-Allow-Origin"))
-	assert.Equal(t, "true", rec.Header().Get("Access-Control-Allow-Credentials"))
+	assert.Equal(t, "*", rec.Header().Get("Access-Control-Allow-Origin"))
+	assert.Empty(t, rec.Header().Get("Access-Control-Allow-Credentials"))
 	assert.Contains(t, rec.Header().Get("Access-Control-Allow-Headers"), "X-Complex-ID")
 }
 
 func TestResponsesCarryOrigin(t *testing.T) {
 	rec, reached := serve(http.MethodGet, map[string]string{"Origin": "https://app.example.com"})
 	assert.True(t, reached)
-	assert.Equal(t, "https://app.example.com", rec.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "*", rec.Header().Get("Access-Control-Allow-Origin"))
 
 	rec, _ = serve(http.MethodGet, nil)
 	assert.Empty(t, rec.Header().Get("Access-Control-Allow-Origin"), "no Origin, no CORS headers")

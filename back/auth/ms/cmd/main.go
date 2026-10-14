@@ -26,6 +26,7 @@ import (
 	pgadapter "superapp/auth/internal/infrastructure/repository/postgres"
 	"superapp/auth/internal/infrastructure/security/jwt"
 	"superapp/auth/internal/infrastructure/security/password"
+	"superapp/auth/internal/presentation/cors"
 	httpshared "superapp/auth/internal/presentation/shared"
 
 	"github.com/google/uuid"
@@ -55,7 +56,7 @@ func main() {
 		Roles: roles.New(repo, uuid.NewString), Permissions: permissions.New(repo, uuid.NewString),
 		Authorization: authorization.New(repo),
 	}
-	server := &http.Server{Addr: cfg.addr, Handler: httpapi.New(services, cfg.gatewayTenantSecret), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
+	server := &http.Server{Addr: cfg.addr, Handler: cors.Middleware(httpapi.New(services, cfg.gatewayTenantSecret)), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
