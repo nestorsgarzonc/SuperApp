@@ -1,9 +1,9 @@
 # notificaciones — API HTTP
 
-Referencia de los endpoints del servicio. Las notificaciones **no se crean por
-HTTP**: llegan como eventos `notifications.requested` (ver
-[`docs/events.md`](../../docs/events.md)). Por HTTP solo se consulta la bandeja,
-se configuran preferencias y se registran dispositivos.
+Referencia de los endpoints del servicio. Las apps consultan la bandeja,
+configuran preferencias y registran dispositivos a través del gateway. Las
+notificaciones las crean **otros servicios** con
+[`POST /internal/notifications`](#interno), que el gateway nunca enruta.
 
 ## Convenciones
 
@@ -52,8 +52,21 @@ Lista la bandeja, la más reciente primero.
 
 | Query | Default | |
 |---|---|---|
-| `unread` | `false` | `true` = solo no leídas |
-| `limit` | `50` | 1–200; un valor fuera de rango usa 50 |
+| `unread` | `false` | `true` = solo no leídas (chip "No leídas") |
+| `group` | todos | uno o varios [grupos](#grupos) separados por coma. Grupo desconocido → `422` |
+| `limit` | `50` | 1–200; un valor fuera de rango usa 50. El dashboard usa `3` |
+
+Chips del centro de notificaciones (Figma):
+
+| Chip | Query |
+|---|---|
+| Todas | — |
+| No leídas (N) | `unread=true` (N viene de `unread-count`) |
+| Control de acceso | `group=ACCESS_CONTROL,INTERCOM` |
+| Comunidad | `group=COMMUNITY` |
+| Reservas | `group=RESERVATIONS` |
+| Asambleas | `group=ASSEMBLIES,VOTES` |
+| Sistema | `group=SYSTEM` |
 
 `200`
 
@@ -69,6 +82,7 @@ Lista la bandeja, la más reciente primero.
       "body": "Juan Pérez está en la entrada",
       "data": { "deep_link": "/visitors/0192…" },
       "type": "VISITOR",
+      "group": "ACCESS_CONTROL",
       "is_read": false,
       "delivery_status": "PUSH_SENT",
       "delivered_at": "2026-10-02T17:20:11Z",
@@ -81,7 +95,8 @@ Lista la bandeja, la más reciente primero.
 | Campo | |
 |---|---|
 | `complex_id` | ausente en notificaciones de cuenta |
-| `type` | categoría del evento (ver [categorías](#categorías)) |
+| `type` | categoría del evento |
+| `group` | grupo de la categoría: define la etiqueta del item ("Control de acceso", "Citofonía", ...). Ver [grupos](#grupos) |
 | `data` | objeto libre del productor; usar `deep_link` para navegar |
 | `read_at` | presente solo si `is_read` |
 | `delivery_status` | `INBOX_ONLY` (sin dispositivos o push pendiente), `PUSH_SENT`, `PUSH_PARTIAL`, `PUSH_FAILED` |
@@ -113,12 +128,14 @@ Sin cuerpo. Marca como leídas todas las no leídas de la bandeja actual.
 ## Preferencias
 
 No requieren `X-Complex-ID`: las preferencias son del usuario y aplican en
-todos sus conjuntos.
+todos sus conjuntos. Son por [grupo](#grupos), una por interruptor de la
+pantalla de preferencias.
 
 ### `GET /me/notification-preferences`
 
-Devuelve el estado **efectivo** de cada categoría configurable: una categoría
-sin configurar aparece habilitada y sin horas de silencio.
+Devuelve los 6 grupos en el orden de la pantalla. Un grupo sin configurar
+aparece habilitado. `locked: true` = obligatorio por seguridad: se muestra con
+candado y no se puede apagar.
 
 `200`
 
@@ -126,46 +143,40 @@ sin configurar aparece habilitada y sin horas de silencio.
 {
   "success": true,
   "data": {
-    "timezone": "America/Bogota",
     "preferences": [
-      { "category": "GENERAL", "enabled": true, "quiet_start": 1320, "quiet_end": 360 },
-      { "category": "PACKAGE", "enabled": false, "quiet_start": null, "quiet_end": null }
+      { "group": "ACCESS_CONTROL", "enabled": true,  "locked": true },
+      { "group": "INTERCOM",       "enabled": true,  "locked": true },
+      { "group": "RESERVATIONS",   "enabled": true,  "locked": false },
+      { "group": "COMMUNITY",      "enabled": true,  "locked": false },
+      { "group": "ASSEMBLIES",     "enabled": true,  "locked": false },
+      { "group": "VOTES",          "enabled": false, "locked": false }
     ]
   }
 }
 ```
 
-`timezone` es el `DEFAULT_TIMEZONE` del servicio si el usuario nunca guardó uno.
-
 ### `PUT /me/notification-preferences`
 
-Actualiza la zona horaria, una o varias categorías, o ambas. Solo se modifican
-las categorías enviadas.
+Cambia uno o varios grupos. Solo se modifican los grupos enviados. Responde con
+el estado completo, igual que el `GET`, para que la app pinte los interruptores
+sin otra llamada.
 
 ```json
-{
-  "timezone": "America/Bogota",
-  "preferences": [
-    { "category": "GENERAL", "enabled": true, "quiet_start": 1320, "quiet_end": 360 },
-    { "category": "PACKAGE", "enabled": false }
-  ]
-}
+{ "preferences": [ { "group": "VOTES", "enabled": false } ] }
 ```
 
 | Campo | |
 |---|---|
-| `timezone` | opcional; nombre IANA (`America/Bogota`, `Europe/Madrid`) |
-| `preferences[].category` | requerido; una categoría configurable |
-| `preferences[].enabled` | **enviarlo siempre**: si se omite cuenta como `false` (silenciada) |
-| `preferences[].quiet_start`, `quiet_end` | minuto del día `[0, 1440)`; ambos o ninguno. Si `start > end` la ventana cruza la medianoche (`1320`–`360` = 22:00–06:00). Se evalúan en la `timezone` del usuario |
+| `preferences[].group` | `RESERVATIONS`, `COMMUNITY`, `ASSEMBLIES` o `VOTES` |
+| `preferences[].enabled` | requerido |
 
 | Respuesta | Caso |
 |---|---|
-| `204` | guardado |
-| `422` `VAL_001` | cuerpo vacío (ni `timezone` ni `preferences`), zona horaria inválida, categoría crítica o desconocida, horas de silencio incompletas o fuera de rango |
+| `200` | guardado; cuerpo igual al `GET` |
+| `422` `VAL_001` | lista vacía, falta `enabled`, grupo desconocido, o grupo obligatorio (`ACCESS_CONTROL`, `INTERCOM`, `SYSTEM`) |
 
-Las categorías críticas (`SOS`, `SECURITY`, `EMERGENCY`, `CALL`) no se pueden
-silenciar ni programar: se rechazan con `422`.
+Un grupo silenciado deja de recibir **bandeja y push** de sus categorías desde
+ese momento. Lo ya recibido no cambia.
 
 ---
 
@@ -240,31 +251,80 @@ Borra un dispositivo por `id` (p. ej. desde una pantalla de "mis dispositivos").
 
 ---
 
+## Interno
+
+Solo para otros servicios de la red privada (reglas comunes en
+[`docs/internal-apis.md`](../../docs/internal-apis.md)). Se autentican con
+`X-Internal-Secret` (`INTERNAL_SECRET`); no llevan `X-User-ID` ni pasan por el
+gateway.
+
+### `POST /internal/notifications`
+
+Crea una notificación para uno o varios usuarios: la guarda en sus bandejas y
+envía el push en segundo plano.
+
+```json
+{
+  "event_id": "0192f1c4-6b7e-7c3a-9d1e-5f2a8b3c4d5e",
+  "source": "control-de-accesos",
+  "complex_id": "0192f1c4-0000-7000-8000-000000000001",
+  "user_ids": ["0192f1c4-0000-7000-8000-000000000002"],
+  "category": "VISITOR",
+  "title": "Visitante en portería",
+  "body": "Juan Pérez está en la entrada",
+  "data": { "deep_link": "/visitors/0192…" }
+}
+```
+
+| Campo | |
+|---|---|
+| `event_id` | requerido; clave de idempotencia (un UUIDv7 nuevo por evento) |
+| `source` | servicio que la solicita |
+| `complex_id` | `null` = notificación de cuenta (aparece en todos los conjuntos) |
+| `user_ids` | requerido; 1 o más UUID (los repetidos se ignoran) |
+| `category` | requerida; ver [grupos](#grupos) |
+| `title` / `body` | requeridos; se recortan a 200 / 2000 caracteres |
+| `data` | opcional; objeto libre (`deep_link` para navegar) |
+
+| Respuesta | Caso |
+|---|---|
+| `202` | `{ "success": true, "data": { "event_id": "…" } }`; también si el `event_id` ya se había recibido (no se duplica) |
+| `401` `AUTH_001` | falta o no coincide `X-Internal-Secret` |
+| `422` `VAL_001` | JSON inválido, categoría desconocida, sin destinatarios, falta `title`/`body`. No reintentar |
+| `500` `SYS_001` | error interno. Reintentar con el **mismo** `event_id` |
+
+Los destinatarios que silenciaron el grupo de la categoría se omiten.
+
+---
+
 ## Operación
 
 ### `GET /healthz`
 
-Sin autenticación; lo usa el balanceador como health check. Comprueba Postgres y Redis.
+Sin autenticación; lo usa el balanceador como health check. Comprueba Postgres.
 
 | Respuesta | |
 |---|---|
 | `200` | `{ "success": true, "data": { "status": "ok" } }` |
-| `503` `SYS_005` | `database unavailable` o `redis unavailable` |
+| `503` `SYS_005` | `database unavailable` |
 
 ---
 
-## Categorías
+## Grupos
 
-| Categoría | Crítica | Configurable por el usuario |
-|---|---|---|
-| `SOS`, `SECURITY`, `EMERGENCY`, `CALL` | sí | no — siempre se entregan, con prioridad alta |
-| `ACCESS`, `VISITOR`, `PACKAGE` | no | sí |
-| `ANNOUNCEMENT`, `COMMUNITY`, `EVENT`, `MAINTENANCE`, `GENERAL` | no | sí |
-| `PAYMENT` | no | sí |
-| `ASSEMBLY` | no | sí |
-| `ACCOUNT` | no | sí |
+| Grupo | Etiqueta en la app | Categorías | Silenciable |
+|---|---|---|---|
+| `ACCESS_CONTROL` | Control de acceso | `SOS`, `SECURITY`, `EMERGENCY`, `ACCESS`, `VISITOR`, `PACKAGE` | no |
+| `INTERCOM` | Citofonía | `CALL` | no |
+| `COMMUNITY` | Comunicados / Comunidad | `ANNOUNCEMENT`, `COMMUNITY`, `EVENT`, `MAINTENANCE` | sí |
+| `RESERVATIONS` | Reservas | `RESERVATION` | sí |
+| `ASSEMBLIES` | Asambleas | `ASSEMBLY` | sí |
+| `VOTES` | Votaciones | `VOTE` | sí |
+| `SYSTEM` | Sistema | `ACCOUNT`, `PAYMENT`, `GENERAL` | no (no aparece en preferencias) |
 
-Qué servicio publica cada una está en [`docs/events.md`](../../docs/events.md#categorías).
+`SOS`, `SECURITY`, `EMERGENCY` y `CALL` además se envían por push con prioridad
+alta. Qué servicio publica cada categoría está en
+[`docs/events.md`](../../docs/events.md#categorías).
 
 ## Probar en local
 
@@ -275,9 +335,14 @@ C=0192f1c4-0000-7000-8000-000000000001
 
 curl -s localhost:8083/users/me/notifications -H "X-User-ID: $U" -H "X-Complex-ID: $C"
 curl -s -X PUT localhost:8083/me/notification-preferences -H "X-User-ID: $U" \
-  -d '{"timezone":"America/Bogota","preferences":[{"category":"GENERAL","enabled":false}]}'
+  -d '{"preferences":[{"group":"VOTES","enabled":false}]}'
 ```
 
 Con `ENV=development` y sin `GATEWAY_SECRET` no se exige `X-Gateway-Secret`.
-Para tener algo en la bandeja, publicar un evento como en
-[`docs/events.md`](../../docs/events.md#publicar-desde-go).
+Para tener algo en la bandeja (sin `X-Internal-Secret` en desarrollo):
+
+```bash
+curl -s -X POST localhost:8083/internal/notifications -d '{
+  "event_id":"'$(uuidgen)'","source":"manual","complex_id":"'$C'","user_ids":["'$U'"],
+  "category":"VISITOR","title":"Visitante en portería","body":"Prueba"}'
+```

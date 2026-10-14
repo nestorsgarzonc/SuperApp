@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { ProtectedRoute, PublicOnly } from './features/auth/routes/guards';
 import { LoginPage } from './features/auth/pages/LoginPage';
@@ -6,19 +7,25 @@ import { useAuth } from './features/auth/components/AuthContext';
 import { useAuth as useSession } from './shared/auth/AuthContext';
 import { AppShell } from './shared/layout/AppShell';
 import { accessControlRoutes } from './modules/control-de-accesos/routes';
+import { notificationRoutes } from './modules/notificaciones/routes';
+import { NotificationBell } from './modules/notificaciones/components/NotificationBell';
+import { disablePush, syncPush } from './modules/notificaciones/push';
 import { AuthComplexSwitcher, AuthSessionBridge } from './features/auth/components/AuthIntegration';
 import { DevLoginPage } from './modules/control-de-accesos/dev/DevLoginPage';
 
 function App() {
   const { identity, activeComplex, signOut } = useAuth();
   const { session, logout } = useSession();
-  const onLogout = async (all = false) => { try { await signOut(all); } finally { logout(); } };
+  // Antes de signOut: el unregister del push necesita la sesión vigente.
+  const onLogout = async (all = false) => { try { await disablePush(); await signOut(all); } finally { logout(); } };
+  const userId = session?.userId;
+  useEffect(() => { if (userId) void syncPush(); }, [userId]);
   if (identity && identity.complexes.length === 0) return <UnauthorizedPage />;
   if (identity && !activeComplex) return <Routes><Route path="/select-complex" element={<SelectComplexPage />} /><Route path="/session-expired" element={<SessionExpiredPage />} /><Route path="*" element={<Navigate to="/select-complex" replace />} /></Routes>;
   if (identity && activeComplex) {
     if (!session) return <AuthSessionBridge />;
     return <Routes>
-      <Route element={<AppShell complexSlot={<AuthComplexSwitcher />} onLogout={onLogout} />}>{accessControlRoutes}</Route>
+      <Route element={<AppShell complexSlot={<AuthComplexSwitcher />} bellSlot={<NotificationBell />} onLogout={onLogout} />}>{accessControlRoutes}{notificationRoutes}</Route>
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>;

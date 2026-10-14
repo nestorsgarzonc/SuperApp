@@ -26,11 +26,18 @@ type Notification struct {
 	Body           string     `json:"body"`
 	Data           JSONB      `json:"data"`
 	Type           string     `json:"type"`
+	Group          string     `json:"group"`
 	IsRead         bool       `json:"is_read"`
 	ReadAt         *time.Time `json:"read_at,omitempty"`
 	DeliveryStatus string     `json:"delivery_status"`
 	DeliveredAt    *time.Time `json:"delivered_at,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
+}
+
+type InboxQuery struct {
+	UnreadOnly bool
+	Groups     []string
+	Limit      int
 }
 
 type JSONB map[string]interface{}

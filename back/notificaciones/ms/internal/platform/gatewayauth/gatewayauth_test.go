@@ -1,6 +1,7 @@
 package gatewayauth
 
 import (
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -77,4 +78,35 @@ func TestRequireComplex(t *testing.T) {
 
 	code, _ = serve("", map[string]string{HeaderUserID: userID, HeaderComplexID: complexID}, RequireComplex)
 	assert.Equal(t, http.StatusOK, code)
+}
+
+func token(payload string) string {
+	return "Bearer x." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".sig"
+}
+
+func TestMiddleware_BearerSubject(t *testing.T) {
+	code, id := serve("s3cret", map[string]string{"Authorization": token(`{"sub":"` + userID + `"}`), HeaderComplexID: complexID})
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, userID, id.UserID.String())
+	assert.Equal(t, complexID, id.ComplexID.String())
+
+	code, id = serve("s3cret", map[string]string{"Authorization": token(`{"user_id":"` + userID + `"}`)})
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, userID, id.UserID.String())
+
+	for name, auth := range map[string]string{
+		"not a jwt":   "Bearer abc",
+		"bad subject": token(`{"sub":"abc"}`),
+		"no subject":  token(`{}`),
+		"bad base64":  "Bearer x.%%%.sig",
+	} {
+		code, id := serve("s3cret", map[string]string{"Authorization": auth})
+		assert.Equal(t, http.StatusUnauthorized, code, name)
+		assert.Nil(t, id, name)
+	}
+}
+
+func TestMiddleware_GatewaySecretWinsOverBearer(t *testing.T) {
+	code, _ := serve("s3cret", map[string]string{HeaderSecret: "nope", "Authorization": token(`{"sub":"` + userID + `"}`)})
+	assert.Equal(t, http.StatusUnauthorized, code)
 }

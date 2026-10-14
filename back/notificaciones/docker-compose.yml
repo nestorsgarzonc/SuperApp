@@ -1,5 +1,5 @@
-# Entorno local aislado del feature notificaciones: su propia db + Redis.
-#   docker compose up -d db redis && docker compose run --rm migrate
+# Entorno local aislado del feature notificaciones: su propia db.
+#   docker compose up -d db && docker compose run --rm migrate
 #   docker compose up ms
 services:
   db:
@@ -13,10 +13,6 @@ services:
       test: ["CMD-SHELL", "pg_isready -U notificaciones"]
       interval: 2s
       retries: 20
-
-  redis:
-    image: redis:8-alpine
-    ports: ["6380:6379"]
 
   migrate:
     image: migrate/migrate:v4.18.3
@@ -32,8 +28,6 @@ services:
       ENV: development
       PORT: "8083"
       DATABASE_URL: postgres://notificaciones:notificaciones@db:5432/notificaciones?sslmode=disable
-      REDIS_URL: redis://redis:6379/0
     ports: ["8083:8083"]
     depends_on:
       db: { condition: service_healthy }
-      redis: { condition: service_started }

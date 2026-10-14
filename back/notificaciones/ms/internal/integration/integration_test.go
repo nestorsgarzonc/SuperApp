@@ -5,8 +5,6 @@ package integration
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"errors"
 	"log/slog"
 	"os"
 	"testing"
@@ -14,14 +12,13 @@ import (
 
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"superapp/notificaciones/internal/events"
 	"superapp/notificaciones/internal/features/devices"
 	"superapp/notificaciones/internal/features/notifications"
 	"superapp/notificaciones/internal/features/preferences"
+	"superapp/notificaciones/internal/platform/apperr"
 )
 
 var logger = slog.New(slog.DiscardHandler)
@@ -35,25 +32,10 @@ func openDB(t *testing.T) *sql.DB {
 	db, err := sql.Open("postgres", url)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
-	_, err = db.Exec(`TRUNCATE notifications, processed_events, notification_preferences, notification_settings, user_devices`)
+	_, err = db.Exec(`TRUNCATE notifications, processed_events, notification_preferences, user_devices`)
 	require.NoError(t, err, "is the database migrated? run `make migrate`")
 	return db
 }
-
-func openRedis(t *testing.T) *redis.Client {
-	t.Helper()
-	url := os.Getenv("TEST_REDIS_URL")
-	if url == "" {
-		t.Skip("TEST_REDIS_URL not set")
-	}
-	opts, err := redis.ParseURL(url)
-	require.NoError(t, err)
-	rdb := redis.NewClient(opts)
-	t.Cleanup(func() { rdb.Close() })
-	return rdb
-}
-
-func ptr[T any](v T) *T { return &v }
 
 func TestNotificationsRepo_BulkInsertAndIdempotency(t *testing.T) {
 	db := openDB(t)
@@ -100,7 +82,7 @@ func TestNotificationsRepo_InboxIncludesAccountLevelRows(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	inbox, err := repo.GetUserNotifications(ctx, complexA, user, false, 50)
+	inbox, err := repo.GetUserNotifications(ctx, complexA, user, false, nil, 50)
 	require.NoError(t, err)
 	titles := []string{}
 	for _, n := range inbox {
@@ -150,32 +132,49 @@ func TestNotificationsRepo_UpdateDelivery(t *testing.T) {
 	require.NoError(t, repo.UpdateDelivery(ctx, created[0].ID, notifications.DeliveryStatusPushSent, &now))
 	assert.ErrorIs(t, repo.UpdateDelivery(ctx, uuid.New(), notifications.DeliveryStatusPushSent, &now), notifications.ErrNotFound)
 
-	inbox, err := repo.GetUserNotifications(ctx, complexID, user, false, 50)
+	inbox, err := repo.GetUserNotifications(ctx, complexID, user, false, nil, 50)
 	require.NoError(t, err)
 	require.Len(t, inbox, 1)
 	assert.Equal(t, notifications.DeliveryStatusPushSent, inbox[0].DeliveryStatus)
 	assert.NotNil(t, inbox[0].DeliveredAt)
 }
 
-func TestPreferencesRepo_BatchLookupAndTimezones(t *testing.T) {
+func TestPreferencesRepo_SaveAndMutedUsers(t *testing.T) {
 	repo := preferences.NewPostgresRepository(openDB(t))
 	ctx := context.Background()
-	muted, quiet, untouched := uuid.New(), uuid.New(), uuid.New()
+	muted, enabled, untouched := uuid.New(), uuid.New(), uuid.New()
 
-	require.NoError(t, repo.Upsert(ctx, &preferences.Preference{UserID: muted, Category: "GENERAL", Enabled: false}))
-	require.NoError(t, repo.Upsert(ctx, &preferences.Preference{UserID: quiet, Category: "GENERAL", Enabled: true, QuietStart: ptr(1320), QuietEnd: ptr(360)}))
-	require.NoError(t, repo.Upsert(ctx, &preferences.Preference{UserID: muted, Category: "GENERAL", Enabled: true}), "upsert updates")
-	require.NoError(t, repo.UpsertTimezone(ctx, quiet, "Europe/Madrid"))
+	require.NoError(t, repo.Save(ctx, muted, map[string]bool{"VOTES": false, "COMMUNITY": false}))
+	require.NoError(t, repo.Save(ctx, enabled, map[string]bool{"VOTES": false}))
+	require.NoError(t, repo.Save(ctx, enabled, map[string]bool{"VOTES": true}), "save updates")
 
-	prefs, err := repo.GetByUsersCategory(ctx, []uuid.UUID{muted, quiet, untouched}, "GENERAL")
+	got, err := repo.MutedUsers(ctx, []uuid.UUID{muted, enabled, untouched}, "VOTES")
 	require.NoError(t, err)
-	require.Len(t, prefs, 2)
-	assert.True(t, prefs[muted].Enabled)
-	assert.Equal(t, 1320, *prefs[quiet].QuietStart)
+	assert.Equal(t, map[uuid.UUID]bool{muted: true}, got)
 
-	tzs, err := repo.GetTimezones(ctx, []uuid.UUID{muted, quiet})
+	prefs, err := repo.GetByUser(ctx, muted)
 	require.NoError(t, err)
-	assert.Equal(t, map[uuid.UUID]string{quiet: "Europe/Madrid"}, tzs)
+	assert.Equal(t, map[string]bool{"VOTES": false, "COMMUNITY": false}, prefs)
+}
+
+func TestNotificationsRepo_InboxFiltersByType(t *testing.T) {
+	repo := notifications.NewPostgresRepository(openDB(t))
+	ctx := context.Background()
+	complexID, user := uuid.New(), uuid.New()
+	for _, typ := range []string{"VOTE", "ASSEMBLY", "VISITOR"} {
+		_, err := repo.CreateNotifications(ctx, notifications.NewNotifications{
+			EventID: uuid.NewString(), ComplexID: &complexID, UserIDs: []uuid.UUID{user}, Title: typ, Body: "b", Type: typ,
+		})
+		require.NoError(t, err)
+	}
+
+	inbox, err := repo.GetUserNotifications(ctx, complexID, user, false, []string{"ASSEMBLY", "VOTE"}, 50)
+	require.NoError(t, err)
+	titles := []string{}
+	for _, n := range inbox {
+		titles = append(titles, n.Title)
+	}
+	assert.ElementsMatch(t, []string{"VOTE", "ASSEMBLY"}, titles)
 }
 
 func TestDevicesRepo_TokenLifecycle(t *testing.T) {
@@ -205,99 +204,27 @@ func TestDevicesRepo_TokenLifecycle(t *testing.T) {
 	assert.Empty(t, tokens)
 }
 
-type consumerEnv struct {
-	rdb    *redis.Client
-	stream string
-	cancel context.CancelFunc
-	done   chan struct{}
-}
-
-func startConsumer(t *testing.T, rdb *redis.Client, svc events.Dispatcher) *consumerEnv {
-	t.Helper()
-	stream := "test.notifications." + uuid.NewString()
-	t.Cleanup(func() { rdb.Del(context.Background(), stream, stream+".dlq") })
-
-	c := events.NewConsumer(rdb, stream, "notificaciones", "test-consumer", svc, logger)
-	c.ClaimIdle = 100 * time.Millisecond
-	ctx, cancel := context.WithCancel(context.Background())
-	env := &consumerEnv{rdb: rdb, stream: stream, cancel: cancel, done: make(chan struct{})}
-	go func() { defer close(env.done); _ = c.Run(ctx) }()
-	t.Cleanup(func() { cancel(); <-env.done })
-
-	require.Eventually(t, func() bool {
-		groups, err := rdb.XInfoGroups(context.Background(), stream).Result()
-		return err == nil && len(groups) == 1
-	}, 5*time.Second, 20*time.Millisecond)
-	return env
-}
-
-func (e *consumerEnv) publish(t *testing.T, payload any) {
-	t.Helper()
-	raw, ok := payload.(string)
-	if !ok {
-		b, err := json.Marshal(payload)
-		require.NoError(t, err)
-		raw = string(b)
-	}
-	require.NoError(t, e.rdb.XAdd(context.Background(), &redis.XAddArgs{
-		Stream: e.stream, Values: map[string]any{"payload": raw},
-	}).Err())
-}
-
-func (e *consumerEnv) dlqLen() int64 {
-	n, _ := e.rdb.XLen(context.Background(), e.stream+".dlq").Result()
-	return n
-}
-
-func (e *consumerEnv) pending() int64 {
-	p, err := e.rdb.XPending(context.Background(), e.stream, "notificaciones").Result()
-	if err != nil {
-		return -1
-	}
-	return p.Count
-}
-
-func TestConsumer_ProcessesEventsOnceAndDeadLettersInvalid(t *testing.T) {
+// Mismo flujo que POST /internal/notifications: un evento repetido se guarda una
+// sola vez y uno inválido se rechaza con error de validación.
+func TestDispatch_IdempotentAndValidated(t *testing.T) {
 	db := openDB(t)
 	svc := notifications.NewService(notifications.NewPostgresRepository(db), nil, nil,
-		preferences.NewChecker(preferences.NewPostgresRepository(db), time.UTC), logger)
-	env := startConsumer(t, openRedis(t), svc)
+		preferences.NewChecker(preferences.NewPostgresRepository(db)), logger)
+	ctx := context.Background()
 	complexID, user := uuid.New(), uuid.New()
 
-	event := events.NotificationRequested{
+	event := notifications.DispatchInput{
 		EventID: uuid.NewString(), Source: "control-de-accesos", ComplexID: &complexID,
 		UserIDs: []uuid.UUID{user}, Category: "VISITOR", Title: "Visitante", Body: "Juan en portería",
 		Data: map[string]any{"deep_link": "/visitors"},
 	}
-	env.publish(t, event)
-	env.publish(t, event)
-	env.publish(t, `{"event_id":"bad","category":"NOPE","user_ids":[]}`)
-	env.publish(t, `not json`)
+	require.NoError(t, svc.Dispatch(ctx, event))
+	require.NoError(t, svc.Dispatch(ctx, event))
 
-	require.Eventually(t, func() bool { return env.dlqLen() == 2 && env.pending() == 0 }, 10*time.Second, 50*time.Millisecond)
+	err := svc.Dispatch(ctx, notifications.DispatchInput{EventID: "bad", Category: "NOPE"})
+	assert.True(t, apperr.IsValidation(err))
 
 	var count int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM notifications WHERE user_id = $1`, user).Scan(&count))
 	assert.Equal(t, 1, count, "duplicate event persisted once")
-}
-
-type failingDispatcher struct{ calls chan struct{} }
-
-func (f failingDispatcher) Dispatch(context.Context, notifications.DispatchInput) error {
-	f.calls <- struct{}{}
-	return errors.New("connection refused")
-}
-
-func TestConsumer_RetriesTransientFailuresThenDeadLetters(t *testing.T) {
-	calls := make(chan struct{}, 100)
-	env := startConsumer(t, openRedis(t), failingDispatcher{calls: calls})
-
-	env.publish(t, events.NotificationRequested{EventID: "evt-transient", UserIDs: []uuid.UUID{uuid.New()}, Category: "GENERAL", Title: "t", Body: "b"})
-
-	require.Eventually(t, func() bool { return env.dlqLen() == 1 && env.pending() == 0 }, 15*time.Second, 50*time.Millisecond)
-	assert.Equal(t, 5, len(calls), "first delivery + retries up to maxDeliveries, then DLQ")
-
-	msgs, err := env.rdb.XRange(context.Background(), env.stream+".dlq", "-", "+").Result()
-	require.NoError(t, err)
-	assert.Contains(t, msgs[0].Values["error"], "gave up after")
 }

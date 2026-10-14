@@ -1,0 +1,41 @@
+# Producción en EC2 con la base de datos en RDS (no hay Postgres en el contenedor).
+#   cp .env.prod.example .env.prod   # y completar
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod pull
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+# La imagen se construye fuera del EC2 (sin GO_TAGS=dev) y se descarga de un registro (ECR / Docker Hub).
+# El esquema se aplica una vez con la imagen db/Dockerfile.migrate (ver README / .env.prod.example).
+services:
+  ms:
+    image: ${MS_IMAGE:?set MS_IMAGE in .env.prod (p. ej. <cuenta>.dkr.ecr.<region>.amazonaws.com/control-de-accesos:tag)}
+    container_name: control_de_accesos_ms
+    restart: unless-stopped
+    environment:
+      ENV: production
+      PORT: 8080
+      AUTH_JWKS_URL: ${AUTH_JWKS_URL:-}
+      AUTH_JWT_ISSUER: ${AUTH_JWT_ISSUER:-}
+      AUTH_JWT_AUDIENCE: ${AUTH_JWT_AUDIENCE:-superapp-api}
+      JWT_SECRET: ${JWT_SECRET:-}
+      GATEWAY_SECRET: ${GATEWAY_SECRET:-}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-}
+      DB_HOST: ${DB_HOST:?set DB_HOST (endpoint de RDS)}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-control_de_accesos}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-control_de_accesos}
+      DB_SSLMODE: ${DB_SSLMODE:-require}
+      DB_SSLROOTCERT: ${DB_SSLROOTCERT:-}
+      DB_MAX_OPEN_CONNS: ${DB_MAX_OPEN_CONNS:-5}
+      DB_MAX_IDLE_CONNS: ${DB_MAX_IDLE_CONNS:-2}
+      NOTIFICACIONES_URL: ${NOTIFICACIONES_URL:-}
+      QR_BREAKER_FAILURES: ${QR_BREAKER_FAILURES:-3}
+      QR_BREAKER_OPEN_SECONDS: ${QR_BREAKER_OPEN_SECONDS:-10}
+      QR_CALL_TIMEOUT_MS: ${QR_CALL_TIMEOUT_MS:-800}
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

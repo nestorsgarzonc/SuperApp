@@ -3,6 +3,7 @@ package push
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	firebase "firebase.google.com/go/v4"
@@ -30,9 +31,12 @@ type Sender interface {
 
 type FCM struct {
 	client *messaging.Client
+	webURL string
 }
 
-func NewFCM(ctx context.Context, credentialsFile, projectID string) (*FCM, error) {
+// NewFCM crea el cliente de FCM. webAppURL (opcional, https://…) es la URL del
+// front: al tocar un push en el navegador se abre webAppURL + deep_link.
+func NewFCM(ctx context.Context, credentialsFile, projectID, webAppURL string) (*FCM, error) {
 	app, err := firebase.NewApp(ctx, &firebase.Config{ProjectID: projectID}, option.WithCredentialsFile(credentialsFile))
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize firebase app: %w", err)
@@ -41,7 +45,7 @@ func NewFCM(ctx context.Context, credentialsFile, projectID string) (*FCM, error
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize messaging client: %w", err)
 	}
-	return &FCM{client: client}, nil
+	return &FCM{client: client, webURL: strings.TrimRight(webAppURL, "/")}, nil
 }
 
 func (f *FCM) Send(ctx context.Context, msg Message) (Result, error) {
@@ -78,6 +82,7 @@ func (f *FCM) Send(ctx context.Context, msg Message) (Result, error) {
 			Headers: map[string]string{"apns-priority": apnsPriority},
 			Payload: &messaging.APNSPayload{Aps: &messaging.Aps{Sound: "default"}},
 		},
+		Webpush: f.webpush(data["deep_link"]),
 	})
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to send push: %w", err)
@@ -94,4 +99,16 @@ func (f *FCM) Send(ctx context.Context, msg Message) (Result, error) {
 		}
 	}
 	return res, nil
+}
+
+// webpush define a dónde lleva el clic en la notificación del navegador. FCM
+// solo acepta links https absolutos; sin WEB_APP_URL el clic no navega.
+func (f *FCM) webpush(deepLink string) *messaging.WebpushConfig {
+	if f.webURL == "" {
+		return nil
+	}
+	if !strings.HasPrefix(deepLink, "/") {
+		deepLink = "/notificaciones"
+	}
+	return &messaging.WebpushConfig{FCMOptions: &messaging.WebpushFCMOptions{Link: f.webURL + deepLink}}
 }

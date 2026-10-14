@@ -6,31 +6,36 @@ import (
 )
 
 type Config struct {
-	Env        string
-	Port       string
-	JWTSecret  string
+	Env       string
+	Port      string
+	JWTSecret string
 	// GatewaySecret authenticates requests forwarded by the api-gateway
 	// (X-Gateway-Secret); InternalSecret authenticates /internal/* calls
 	// (X-Internal-Secret). Empty GatewaySecret = gateway identity not accepted;
 	// empty InternalSecret = /internal/* not mounted.
 	GatewaySecret  string
 	InternalSecret string
-	DBHost     string
-	DBPort     string
-	DBUser     string
-	DBPassword string
-	DBName     string
-	DBSSLMode  string
+	DBHost         string
+	DBPort         string
+	DBUser         string
+	DBPassword     string
+	DBName         string
+	DBSSLMode      string
 	// DBSSLRootCert, when set, is the path to a CA bundle used for
 	// sslmode=verify-full.
 	DBSSLRootCert         string
 	DBMaxOpenConns        int
 	DBMaxIdleConns        int
 	DBConnMaxLifetimeMins int
-	// RedisURL is where notification requests are published for the
-	// notificaciones service; NotificationsStream is the stream name.
-	RedisURL            string
-	NotificationsStream string
+	// AuthJWKSURL enables RS256 tokens issued by the auth service (public keys
+	// fetched from this URL); issuer and audience must match its tokens.
+	AuthJWKSURL  string
+	AuthIssuer   string
+	AuthAudience string
+	// NotificacionesURL is the base URL of the notificaciones service, which
+	// receives notification requests on POST /internal/notifications
+	// (authenticated with InternalSecret).
+	NotificacionesURL string
 
 	// QR system circuit breaker.
 	QRBreakerFailures    int
@@ -60,9 +65,11 @@ func Load() Config {
 		// Recycling connections periodically means the pool picks up a
 		// changed DNS endpoint instead of pinning to a stale backend.
 		DBConnMaxLifetimeMins: getEnvInt("DB_CONN_MAX_LIFETIME_MINUTES", 5),
-		// Empty REDIS_URL disables outbound notifications (client no-ops).
-		RedisURL:            getEnv("REDIS_URL", ""),
-		NotificationsStream: getEnv("NOTIFICATIONS_STREAM", "notifications.requested"),
+		AuthJWKSURL:           getEnv("AUTH_JWKS_URL", ""),
+		AuthIssuer:            getEnv("AUTH_JWT_ISSUER", ""),
+		AuthAudience:          getEnv("AUTH_JWT_AUDIENCE", "superapp-api"),
+		// Empty NOTIFICACIONES_URL disables outbound notifications (client no-ops).
+		NotificacionesURL: getEnv("NOTIFICACIONES_URL", ""),
 
 		QRBreakerFailures:    getEnvInt("QR_BREAKER_FAILURES", 3),
 		QRBreakerOpenSeconds: getEnvInt("QR_BREAKER_OPEN_SECONDS", 10),

@@ -24,11 +24,12 @@ type fakeService struct {
 	gotComplex, gotUser uuid.UUID
 	gotLimit            int
 	gotUnread           bool
+	gotGroups           []string
 	err                 error
 }
 
-func (f *fakeService) GetUserNotifications(_ context.Context, complexID, userID uuid.UUID, unreadOnly bool, limit int) ([]*Notification, error) {
-	f.gotComplex, f.gotUser, f.gotUnread, f.gotLimit = complexID, userID, unreadOnly, limit
+func (f *fakeService) GetUserNotifications(_ context.Context, complexID, userID uuid.UUID, q InboxQuery) ([]*Notification, error) {
+	f.gotComplex, f.gotUser, f.gotUnread, f.gotLimit, f.gotGroups = complexID, userID, q.UnreadOnly, q.Limit, q.Groups
 	return []*Notification{}, f.err
 }
 
@@ -68,7 +69,7 @@ func TestHandlers_InboxUsesGatewayIdentity(t *testing.T) {
 	svc := &fakeService{}
 	c := caller{user: uuid.New(), complex: uuid.New()}
 
-	rec, body := c.do(t, newRouter(svc), http.MethodGet, "/users/me/notifications?unread=true&limit=10", "")
+	rec, body := c.do(t, newRouter(svc), http.MethodGet, "/users/me/notifications?unread=true&limit=10&group=ASSEMBLIES,VOTES", "")
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, true, body["success"])
@@ -76,6 +77,7 @@ func TestHandlers_InboxUsesGatewayIdentity(t *testing.T) {
 	assert.Equal(t, c.complex, svc.gotComplex)
 	assert.True(t, svc.gotUnread)
 	assert.Equal(t, 10, svc.gotLimit)
+	assert.Equal(t, []string{"ASSEMBLIES", "VOTES"}, svc.gotGroups)
 }
 
 func TestHandlers_InboxRequiresComplex(t *testing.T) {
@@ -110,3 +112,40 @@ func TestHandlers_InternalErrorsDoNotLeakCause(t *testing.T) {
 type assertErr string
 
 func (e assertErr) Error() string { return string(e) }
+
+type dispatchService struct {
+	Service
+	got DispatchInput
+	err error
+}
+
+func (d *dispatchService) Dispatch(_ context.Context, in DispatchInput) error {
+	d.got = in
+	return d.err
+}
+
+func postInternal(t *testing.T, svc Service, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := chi.NewRouter()
+	RegisterInternalRoutes(r, NewHandler(svc, slog.New(slog.DiscardHandler)))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/internal/notifications", strings.NewReader(body)))
+	return rec
+}
+
+func TestDispatch_AcceptsEvent(t *testing.T) {
+	svc := &dispatchService{}
+	user := uuid.New()
+	rec := postInternal(t, svc, `{"event_id":"evt-1","source":"control-de-accesos","user_ids":["`+user.String()+`"],"category":"VISITOR","title":"t","body":"b"}`)
+
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Equal(t, "evt-1", svc.got.EventID)
+	assert.Equal(t, []uuid.UUID{user}, svc.got.UserIDs)
+	assert.Equal(t, "VISITOR", svc.got.Category)
+}
+
+func TestDispatch_Errors(t *testing.T) {
+	assert.Equal(t, http.StatusUnprocessableEntity, postInternal(t, &dispatchService{}, `{not json`).Code)
+	assert.Equal(t, http.StatusUnprocessableEntity,
+		postInternal(t, &dispatchService{err: apperr.Field("category", "Unknown category")}, `{}`).Code)
+}

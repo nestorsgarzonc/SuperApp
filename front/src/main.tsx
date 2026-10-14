@@ -13,13 +13,13 @@ const start = async () => {
   if (import.meta.env.VITE_USE_MOCK_API === 'true') {
     try {
       const { worker } = await import('./test/browser');
-      await worker.start({ onUnhandledRequest: 'bypass' });
+      await worker.start({ onUnhandledRequest: 'bypass', serviceWorker: { url: `${import.meta.env.BASE_URL}mockServiceWorker.js` } });
     } catch {
       // La pantalla sigue accesible si un navegador local bloquea el worker mock.
     }
   }
   ReactDOM.createRoot(document.getElementById('root')!).render(
-    <React.StrictMode><QueryClientProvider client={queryClient}><BrowserRouter><SessionProvider><AuthProvider><App /></AuthProvider></SessionProvider></BrowserRouter></QueryClientProvider></React.StrictMode>,
+    <React.StrictMode><QueryClientProvider client={queryClient}><BrowserRouter basename={import.meta.env.BASE_URL}><SessionProvider><AuthProvider><App /></AuthProvider></SessionProvider></BrowserRouter></QueryClientProvider></React.StrictMode>,
   );
 };
 void start();

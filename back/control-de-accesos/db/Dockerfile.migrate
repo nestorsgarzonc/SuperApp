@@ -1,0 +1,13 @@
+# Imagen de un solo uso para aplicar el esquema en RDS (ECS RunTask / job de CI), sin instalar psql a mano.
+# Build (contexto = control-de-accesos/):
+#   docker build -f db/Dockerfile.migrate -t control-de-accesos-migrate .
+# Run: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME (+ DB_SSLMODE, default require).
+# Seeds de demo: solo con WITH_SEEDS=1 (nunca en producción).
+FROM alpine:3.23
+RUN apk add --no-cache bash postgresql-client ca-certificates
+WORKDIR /db
+COPY db/migrate.sh ./migrate.sh
+COPY db/migrations ./migrations
+COPY db/seeds ./seeds
+RUN chmod +x migrate.sh
+ENTRYPOINT ["/db/migrate.sh"]

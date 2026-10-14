@@ -45,8 +45,8 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
       DB_NAME: control_de_accesos
       DB_SSLMODE: disable
-      # Redis del servicio notificaciones (stream notifications.requested). Vacío = desactivado.
-      REDIS_URL: ${REDIS_URL:-}
+      # ms de notificaciones (POST /internal/notifications con INTERNAL_SECRET). Vacío = desactivado.
+      NOTIFICACIONES_URL: ${NOTIFICACIONES_URL:-}
       # Circuit breaker del sistema QR (ver docs/control-de-accesos.md)
       QR_BREAKER_FAILURES: ${QR_BREAKER_FAILURES:-3}
       QR_BREAKER_OPEN_SECONDS: ${QR_BREAKER_OPEN_SECONDS:-10}

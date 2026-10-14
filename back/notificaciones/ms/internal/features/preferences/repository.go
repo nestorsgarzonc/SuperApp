@@ -10,13 +10,9 @@ import (
 )
 
 type Repository interface {
-	GetByUser(ctx context.Context, userID uuid.UUID) ([]*Preference, error)
-
-	GetByUsersCategory(ctx context.Context, userIDs []uuid.UUID, category string) (map[uuid.UUID]*Preference, error)
-	Upsert(ctx context.Context, p *Preference) error
-
-	GetTimezones(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]string, error)
-	UpsertTimezone(ctx context.Context, userID uuid.UUID, timezone string) error
+	GetByUser(ctx context.Context, userID uuid.UUID) (map[string]bool, error)
+	MutedUsers(ctx context.Context, userIDs []uuid.UUID, group string) (map[uuid.UUID]bool, error)
+	Save(ctx context.Context, userID uuid.UUID, enabled map[string]bool) error
 }
 
 type PostgresRepository struct {
@@ -27,104 +23,63 @@ func NewPostgresRepository(db *sql.DB) *PostgresRepository {
 	return &PostgresRepository{db: db}
 }
 
-const selectColumns = `id, user_id, complex_id, category, enabled, quiet_start, quiet_end, created_at, updated_at`
-
-func scan(row interface{ Scan(...any) error }, p *Preference) error {
-	return row.Scan(&p.ID, &p.UserID, &p.ComplexID, &p.Category, &p.Enabled,
-		&p.QuietStart, &p.QuietEnd, &p.CreatedAt, &p.UpdatedAt)
-}
-
-func (r *PostgresRepository) GetByUser(ctx context.Context, userID uuid.UUID) ([]*Preference, error) {
+func (r *PostgresRepository) GetByUser(ctx context.Context, userID uuid.UUID) (map[string]bool, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT `+selectColumns+` FROM notification_preferences WHERE user_id = $1`, userID)
+		`SELECT group_name, enabled FROM notification_preferences WHERE user_id = $1`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query notification preferences: %w", err)
 	}
 	defer rows.Close()
-
-	prefs := []*Preference{}
+	out := map[string]bool{}
 	for rows.Next() {
-		var p Preference
-		if err := scan(rows, &p); err != nil {
+		var group string
+		var enabled bool
+		if err := rows.Scan(&group, &enabled); err != nil {
 			return nil, fmt.Errorf("failed to scan notification preference: %w", err)
 		}
-		prefs = append(prefs, &p)
-	}
-	return prefs, rows.Err()
-}
-
-func (r *PostgresRepository) GetByUsersCategory(ctx context.Context, userIDs []uuid.UUID, category string) (map[uuid.UUID]*Preference, error) {
-	out := make(map[uuid.UUID]*Preference)
-	if len(userIDs) == 0 {
-		return out, nil
-	}
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT `+selectColumns+` FROM notification_preferences
-		 WHERE user_id = ANY($1::uuid[]) AND category = $2`,
-		pq.Array(uuid.UUIDs(userIDs).Strings()), category)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query notification preferences: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var p Preference
-		if err := scan(rows, &p); err != nil {
-			return nil, fmt.Errorf("failed to scan notification preference: %w", err)
-		}
-		out[p.UserID] = &p
+		out[group] = enabled
 	}
 	return out, rows.Err()
 }
 
-func (r *PostgresRepository) Upsert(ctx context.Context, p *Preference) error {
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO notification_preferences (user_id, complex_id, category, enabled, quiet_start, quiet_end)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (user_id, category)
-		DO UPDATE SET
-			complex_id  = EXCLUDED.complex_id,
-			enabled     = EXCLUDED.enabled,
-			quiet_start = EXCLUDED.quiet_start,
-			quiet_end   = EXCLUDED.quiet_end,
-			updated_at  = NOW()`,
-		p.UserID, p.ComplexID, p.Category, p.Enabled, p.QuietStart, p.QuietEnd,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to upsert notification preference: %w", err)
-	}
-	return nil
-}
-
-func (r *PostgresRepository) GetTimezones(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]string, error) {
-	out := make(map[uuid.UUID]string)
+func (r *PostgresRepository) MutedUsers(ctx context.Context, userIDs []uuid.UUID, group string) (map[uuid.UUID]bool, error) {
+	out := map[uuid.UUID]bool{}
 	if len(userIDs) == 0 {
 		return out, nil
 	}
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT user_id, timezone FROM notification_settings WHERE user_id = ANY($1::uuid[])`,
-		pq.Array(uuid.UUIDs(userIDs).Strings()))
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT user_id FROM notification_preferences
+		WHERE user_id = ANY($1::uuid[]) AND group_name = $2 AND NOT enabled`,
+		pq.Array(uuid.UUIDs(userIDs).Strings()), group)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query notification settings: %w", err)
+		return nil, fmt.Errorf("failed to query muted users: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var id uuid.UUID
-		var tz string
-		if err := rows.Scan(&id, &tz); err != nil {
-			return nil, fmt.Errorf("failed to scan notification settings: %w", err)
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan muted user: %w", err)
 		}
-		out[id] = tz
+		out[id] = true
 	}
 	return out, rows.Err()
 }
 
-func (r *PostgresRepository) UpsertTimezone(ctx context.Context, userID uuid.UUID, timezone string) error {
+func (r *PostgresRepository) Save(ctx context.Context, userID uuid.UUID, enabled map[string]bool) error {
+	groups := make([]string, 0, len(enabled))
+	values := make([]bool, 0, len(enabled))
+	for g, e := range enabled {
+		groups = append(groups, g)
+		values = append(values, e)
+	}
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO notification_settings (user_id, timezone) VALUES ($1, $2)
-		ON CONFLICT (user_id) DO UPDATE SET timezone = EXCLUDED.timezone, updated_at = NOW()`,
-		userID, timezone)
+		INSERT INTO notification_preferences (user_id, group_name, enabled)
+		SELECT $1, g, e FROM unnest($2::text[], $3::boolean[]) AS t(g, e)
+		ON CONFLICT (user_id, group_name)
+		DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = NOW()`,
+		userID, pq.Array(groups), pq.Array(values))
 	if err != nil {
-		return fmt.Errorf("failed to upsert timezone: %w", err)
+		return fmt.Errorf("failed to save notification preferences: %w", err)
 	}
 	return nil
 }

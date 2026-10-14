@@ -2,6 +2,8 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { loadEnv, type ProxyOptions } from 'vite';
 
+// El front nunca llama a un ms directo: todo va por el API Gateway. En dev,
+// /api se redirige a GATEWAY_URL o, si no está, a ACCESS_URL.
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   const apiProxy: Record<string, string | ProxyOptions> = {};
@@ -12,6 +14,8 @@ export default defineConfig(({ mode }) => {
     apiProxy['/api'] = { target: env.ACCESS_URL || 'http://localhost:8081', changeOrigin: true };
   }
   return {
+    // En GitHub Pages el sitio vive en /<repo>/; en dev queda en la raíz.
+    base: env.VITE_BASE_PATH || '/',
     plugins: [react()],
     server: { port: 5173, proxy: apiProxy },
     test: { environment: 'jsdom', setupFiles: './src/test/setup.ts', restoreMocks: true },

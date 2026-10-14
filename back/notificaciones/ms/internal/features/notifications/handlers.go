@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -28,10 +29,14 @@ func identity(r *http.Request) (userID, complexID uuid.UUID) {
 
 func (h *Handler) GetUserNotifications(w http.ResponseWriter, r *http.Request) {
 	userID, complexID := identity(r)
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	unreadOnly := r.URL.Query().Get("unread") == "true"
+	query := r.URL.Query()
+	q := InboxQuery{UnreadOnly: query.Get("unread") == "true"}
+	q.Limit, _ = strconv.Atoi(query.Get("limit"))
+	if raw := query.Get("group"); raw != "" {
+		q.Groups = strings.Split(raw, ",")
+	}
 
-	out, err := h.service.GetUserNotifications(r.Context(), complexID, userID, unreadOnly, limit)
+	out, err := h.service.GetUserNotifications(r.Context(), complexID, userID, q)
 	if err != nil {
 		apperr.RespondError(w, h.logger, err)
 		return
@@ -71,4 +76,20 @@ func (h *Handler) MarkAllAsRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apperr.RespondOK(w, map[string]int64{"marked_count": count})
+}
+
+// Dispatch recibe una solicitud de notificación de otro servicio (POST
+// /internal/notifications). Idempotente por event_id: reenviar el mismo evento
+// responde 202 sin duplicar la bandeja, así el productor puede reintentar.
+func (h *Handler) Dispatch(w http.ResponseWriter, r *http.Request) {
+	var in DispatchInput
+	if err := apperr.DecodeJSON(r, &in); err != nil {
+		apperr.RespondError(w, h.logger, err)
+		return
+	}
+	if err := h.service.Dispatch(r.Context(), in); err != nil {
+		apperr.RespondError(w, h.logger, err)
+		return
+	}
+	apperr.RespondAccepted(w, map[string]string{"event_id": in.EventID})
 }

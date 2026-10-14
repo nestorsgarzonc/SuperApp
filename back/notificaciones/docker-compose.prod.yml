@@ -1,0 +1,41 @@
+# Producción en EC2. La base de datos es la RDS compartida por todos los ms
+# (schema `notificaciones`). Los demás ms crean notificaciones con
+# POST /internal/notifications (X-Internal-Secret).
+#   cp .env.prod.example .env.prod   # y completar
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod --profile tools run --rm migrate
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+# Requisito previo (una vez): db/bootstrap.sql con el usuario maestro de RDS.
+# La imagen se construye fuera del EC2 (make image) y se descarga de un registro.
+services:
+  ms:
+    image: ${MS_IMAGE:?set MS_IMAGE in .env.prod (p. ej. <cuenta>.dkr.ecr.<region>.amazonaws.com/notificaciones:tag)}
+    container_name: notificaciones_ms
+    restart: unless-stopped
+    environment:
+      ENV: production
+      PORT: "8083"
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL (RDS, con search_path=notificaciones)}
+      DB_MAX_OPEN_CONNS: ${DB_MAX_OPEN_CONNS:-5}
+      DB_MAX_IDLE_CONNS: ${DB_MAX_IDLE_CONNS:-2}
+      GATEWAY_SECRET: ${GATEWAY_SECRET:?set GATEWAY_SECRET}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?set INTERNAL_SECRET}
+      FIREBASE_CREDENTIALS_FILE: ${FIREBASE_CREDENTIALS_FILE:-}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      WEB_APP_URL: ${WEB_APP_URL:-}
+    volumes:
+      # Credencial de FCM (opcional): ./secrets/firebase.json → /secrets/firebase.json
+      - ./secrets:/secrets:ro
+    ports:
+      - "${HOST_PORT:-8083}:8083"
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  migrate:
+    image: migrate/migrate:v4.18.3
+    profiles: ["tools"]
+    volumes: ["./db/migrations:/migrations:ro"]
+    command: ["-path", "/migrations", "-database", "${DATABASE_URL}", "up"]

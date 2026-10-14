@@ -112,6 +112,10 @@ func RespondCreated(w http.ResponseWriter, data interface{}) {
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"success": true, "data": data})
 }
 
+func RespondAccepted(w http.ResponseWriter, data interface{}) {
+	writeJSON(w, http.StatusAccepted, map[string]interface{}{"success": true, "data": data})
+}
+
 func RespondNoContent(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusNoContent)
 }
