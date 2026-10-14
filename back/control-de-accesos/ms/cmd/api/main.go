@@ -14,6 +14,7 @@ import (
 	"controldeaccesos/internal/directory"
 	"controldeaccesos/internal/membership"
 	"controldeaccesos/internal/notifier"
+	"controldeaccesos/internal/platform/cors"
 	"controldeaccesos/internal/platform/database"
 	authmw "controldeaccesos/internal/platform/middleware"
 	"controldeaccesos/internal/qrsystem"
@@ -84,6 +85,7 @@ func main() {
 	membershipHandler := membership.NewHandler(dir)
 
 	r := chi.NewRouter()
+	r.Use(cors.Middleware)
 	r.Use(chimw.Logger)
 	r.Use(chimw.Recoverer)
 	r.Use(authmw.WithRequestMeta)
