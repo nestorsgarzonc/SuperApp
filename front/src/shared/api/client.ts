@@ -50,7 +50,7 @@ export const setApiSession = (s: Session | null) => {
 let refreshRequest: Promise<string | null> | null = null;
 async function refreshAccessToken(): Promise<string | null> {
   if (!refreshRequest) {
-    refreshRequest = fetch(`${BASE}/auth/refresh`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } })
+    refreshRequest = fetch(`${BASE}/auth/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
       .then(async (response) => {
         if (!response.ok) return null;
         const json = await response.json() as { access_token?: string; data?: { access_token?: string }; tokens?: { access_token?: string } };
@@ -90,7 +90,6 @@ export async function api<T>(path: string, opts: RequestOpts = {}, retry = true)
       method: opts.method ?? 'GET',
       headers,
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-      credentials: 'include',
     });
   } catch {
     throw new ApiError('Sin conexión con el servidor', 0);

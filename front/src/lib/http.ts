@@ -15,7 +15,7 @@ export function getAccessToken(): string | null { return accessToken; }
 async function refreshSession(): Promise<boolean> {
   if (!refreshInFlight) {
     refreshInFlight = fetch(`${API_BASE}/auth/refresh`, {
-      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
     }).then(async (response) => {
       if (!response.ok) return false;
       const payload: { access_token?: string; tokens?: { access_token: string } } = await response.json();
@@ -34,7 +34,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}, retry = 
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: 'include' });
+    response = await fetch(`${API_BASE}${path}`, { ...init, headers });
   } catch {
     throw new HttpError(0, 'No pudimos conectarnos. Revisa tu conexión e inténtalo nuevamente.');
   }
