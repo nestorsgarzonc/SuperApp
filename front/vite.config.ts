@@ -7,6 +7,8 @@ import { loadEnv } from 'vite';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
+    // En GitHub Pages el sitio vive en /<repo>/; en dev queda en la raíz.
+    base: env.VITE_BASE_PATH || '/',
     plugins: [react()],
     server: {
       port: 5173,

@@ -21,7 +21,7 @@ export const pushConfigured = Boolean(
 );
 
 // Scope propio: no choca con el service worker de MSW (mock) que usa "/".
-const SW_SCOPE = '/firebase-cloud-messaging-push-scope';
+const SW_SCOPE = `${import.meta.env.BASE_URL}firebase-cloud-messaging-push-scope`;
 const TOKEN_KEY = 'superapp:push-token';
 
 const storage = {
@@ -90,7 +90,7 @@ function activated(reg: ServiceWorkerRegistration) {
 async function register({ m, sdk }: { m: Messaging; sdk: Sdk }) {
   // El service worker no ve import.meta.env: la configuración viaja en la URL.
   const params = new URLSearchParams(Object.entries(config).filter((e): e is [string, string] => !!e[1]));
-  const sw = await activated(await navigator.serviceWorker.register(`/firebase-messaging-sw.js?${params}`, { scope: SW_SCOPE }));
+  const sw = await activated(await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}firebase-messaging-sw.js?${params}`, { scope: SW_SCOPE }));
   const token = await sdk.getToken(m, { vapidKey, serviceWorkerRegistration: sw });
   await notificationsApi.registerDevice({ platform: 'WEB', push_token: token, device_name: deviceName() });
   storage.set(token);
