@@ -20,6 +20,7 @@ import (
 	"superapp/notificaciones/internal/features/notifications"
 	"superapp/notificaciones/internal/features/preferences"
 	"superapp/notificaciones/internal/platform/apperr"
+	"superapp/notificaciones/internal/platform/cors"
 	"superapp/notificaciones/internal/platform/gatewayauth"
 	"superapp/notificaciones/internal/platform/internalauth"
 	"superapp/notificaciones/internal/platform/push"
@@ -73,7 +74,7 @@ func run(logger *slog.Logger) error {
 	)
 
 	r := chi.NewRouter()
-	r.Use(chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Timeout(60*time.Second))
+	r.Use(cors.Middleware, chimw.RequestID, chimw.RealIP, chimw.Recoverer, chimw.Timeout(60*time.Second))
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := db.PingContext(r.Context()); err != nil {
 			apperr.RespondError(w, logger, apperr.Unavailable("database unavailable", err))

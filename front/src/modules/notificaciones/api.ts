@@ -1,4 +1,12 @@
-import { api } from '../../shared/api/client';
+import { api as client } from '../../shared/api/client';
+
+/**
+ * Todo el ms va bajo un solo recurso del API Gateway:
+ * /api/v1/notifications/{proxy+} → http://<ec2>:8083/{proxy}. El prefijo se
+ * quita en el gateway, por eso las rutas del ms quedan intactas.
+ */
+const PREFIX = '/notifications';
+const api: typeof client = (path, ...rest) => client(PREFIX + path, ...rest);
 
 /** Contrato: back/notificaciones/API.md */
 
