@@ -39,7 +39,7 @@ func main() {
 	if base == "" {
 		base = filepath.Join("..", "db")
 	}
-	if err = apply(ctx, conn, filepath.Join(base, "migrations"), "auth_schema_migrations", "_up.sql"); err != nil {
+	if err = apply(ctx, conn, filepath.Join(base, "migrations"), "auth_schema_migrations", ".up.sql"); err != nil {
 		fatal(err.Error())
 	}
 	if err = apply(ctx, conn, filepath.Join(base, "seeds"), "auth_seed_runs", ".sql"); err != nil {

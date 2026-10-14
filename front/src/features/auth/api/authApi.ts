@@ -4,9 +4,9 @@ export interface Complex { id: string; name: string; address: string; status: 'A
 export interface AuthIdentity { id: string; name: string; email: string; roles: string[]; permissions: string[]; complexes: Complex[]; activeComplex?: Complex; }
 interface LoginResponse { user: { id: string; name?: string; full_name?: string; email: string; roles?: string[]; permissions?: string[]; complexes?: Complex[] }; tokens: { access_token: string; refresh_token?: string }; }
 
-export async function login(email: string, password: string, remember: boolean): Promise<AuthIdentity> {
+export async function login(email: string, password: string, _remember: boolean): Promise<AuthIdentity> {
   const response = await apiFetch<LoginResponse>('/auth/login', {
-    method: 'POST', body: JSON.stringify({ email: email.trim().toLowerCase(), password, remember, device_name: 'Navegador web' }),
+    method: 'POST', body: JSON.stringify({ email: email.trim().toLowerCase(), password, device_name: 'Navegador web' }),
   });
   setAccessToken(response.tokens.access_token);
   return {

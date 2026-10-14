@@ -4,7 +4,7 @@ SHELL := /bin/sh
 test:
 	go test ./...
 integration:
-	go test ./internal/infrastructure/persistence/postgres -run TestRepositoryPostgresIntegration -v
+	go test ./internal/infrastructure/repository/postgres -run TestRepositoryPostgresIntegration -v
 vet:
 	go vet ./...
 build:

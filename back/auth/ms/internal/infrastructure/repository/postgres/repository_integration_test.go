@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"superapp/auth/internal/core/domain"
 	coreRepository "superapp/auth/internal/core/ports/repository"
 )
@@ -28,9 +29,9 @@ func TestRepositoryPostgresIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	setup := exec.CommandContext(ctx, "go", "run", "../../../cmd/setup")
+	setup := exec.CommandContext(ctx, "go", "run", "../../../../cmd/setup")
 	setup.Dir = workingDir
-	setup.Env = append(os.Environ(), "AUTH_DATABASE_URL="+dsn, "AUTH_DB_DIR="+filepath.Clean(filepath.Join(workingDir, "../../../db")))
+	setup.Env = append(os.Environ(), "AUTH_DATABASE_URL="+dsn, "AUTH_DB_DIR="+filepath.Clean(filepath.Join(workingDir, "../../../../../db")))
 	if output, err := setup.CombinedOutput(); err != nil {
 		t.Fatalf("apply real Auth migrations/seeds: %v\n%s", err, output)
 	}

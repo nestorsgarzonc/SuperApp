@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../shared/auth/AuthContext';
+import { useAuth as useIdentity } from '../../../features/auth/components/AuthContext';
 import type { Session } from '../../../shared/api/client';
 import { ErrorBox } from '../../../shared/ui';
 import { listDevUsers, loginDemo, membershipLabel, type DevUser } from './devApi';
@@ -11,6 +13,8 @@ import { listDevUsers, loginDemo, membershipLabel, type DevUser } from './devApi
  */
 export function DevLoginPage() {
   const { signIn } = useAuth();
+  const { signInDevelopment } = useIdentity();
+  const navigate = useNavigate();
   const [users, setUsers] = useState<DevUser[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -29,7 +33,10 @@ export function DevLoginPage() {
     setBusy(key);
     setError(null);
     try {
-      signIn(await fn());
+      const session = await fn();
+      signIn(session);
+      signInDevelopment(session);
+      navigate('/', { replace: true });
     } catch (e) {
       setError((e as Error).message);
       setBusy(null);
