@@ -1,4 +1,4 @@
-import type { IntercomConfig } from './config';
+import type { IntercomClient, IntercomConfig } from './config';
 import type { ConnectionStatus, IncomingMessage, OutgoingMessage, SocketEvent } from './protocol';
 import type { SignalingTransport } from './websocket';
 
@@ -68,9 +68,20 @@ export class IntercomController {
       this.update({ status: 'error', error: 'Selecciona un apartamento del conjunto activo.' });
       return;
     }
+    this.startCall(apartment);
+  }
+  callPorter() {
+    if (active(this.state.status)) return;
+    if (this.config.client.role !== 'apartment') {
+      this.update({ status: 'error', error: 'Solo los apartamentos pueden llamar a portería.' });
+      return;
+    }
+    this.startCall(this.config.porter);
+  }
+  private startCall(peer: IntercomClient) {
     const callId = crypto.randomUUID();
-    this.update({ call: { callId, peer: apartment.clientId, label: apartment.label, direction: 'outgoing' }, status: 'calling', error: null, delivered: false });
-    if (!this.send('CALL', `Llamando ${apartment.label.charAt(0).toLocaleLowerCase()}${apartment.label.slice(1)}`)) this.update({ status: 'error' });
+    this.update({ call: { callId, peer: peer.clientId, label: peer.label, direction: 'outgoing' }, status: 'calling', error: null, delivered: false });
+    if (!this.send('CALL', `Llamando ${peer.label.charAt(0).toLocaleLowerCase()}${peer.label.slice(1)}`)) this.update({ status: 'error' });
   }
   accept() {
     if (this.state.status === 'incoming' && this.send('CALL_ACCEPTED', 'Llamada aceptada')) this.update({ status: 'accepted', error: null });
@@ -98,8 +109,21 @@ export class IntercomController {
   private onMessage(message: IncomingMessage) {
     const { client, porter } = this.config;
     if (message.type === 'CALL') {
-      if (client.role !== 'apartment' || message.target !== client.clientId || message.from !== porter.clientId || active(this.state.status)) return;
-      this.update({ call: { callId: crypto.randomUUID(), peer: message.from, label: porter.label, direction: 'incoming' }, status: 'incoming', delivered: false, error: null });
+      const peer = client.role === 'apartment'
+        ? message.from === porter.clientId ? porter : undefined
+        : this.config.apartments.find(({ clientId }) => clientId === message.from);
+      if (!peer || message.target !== client.clientId) return;
+      if (active(this.state.status)) {
+        if (this.state.call?.peer !== peer.clientId) {
+          try {
+            this.transport.send({ type: 'CALL_REJECTED', target: peer.clientId, message: 'Hay una llamada en curso.' });
+          } catch (error) {
+            this.update({ error: error instanceof Error ? error.message : 'No se pudo rechazar la llamada adicional.' });
+          }
+        }
+        return;
+      }
+      this.update({ call: { callId: crypto.randomUUID(), peer: peer.clientId, label: peer.label, direction: 'incoming' }, status: 'incoming', delivered: false, error: null });
       return;
     }
     const { call, status } = this.state;

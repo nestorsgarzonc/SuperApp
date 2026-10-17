@@ -65,6 +65,39 @@ afterEach(() => {
 });
 
 describe('Intercom session UI', () => {
+  it('lets the resident call portería, wait, accept remotely and finish', () => {
+    setup();
+    fireEvent.click(screen.getByText('Entrar residente'));
+    fireEvent.click(screen.getByRole('link', { name: 'Citofonía' }));
+    const button = screen.getByRole('button', { name: 'Llamar a portería' });
+    expect(button).toBeDisabled();
+    openSocket();
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    const socket = FakeWebSocket.latest();
+    expect(socket.send).toHaveBeenLastCalledWith(JSON.stringify({ action: 'seendMessage', type: 'CALL', target: 'PORTERIA', message: 'Llamando portería' }));
+    expect(screen.getByText('Llamando Portería...')).toBeInTheDocument();
+    act(() => socket.receive({ type: 'CALL_ACCEPTED', from: 'PORTERIA', target: 'APT_4' }));
+    expect(screen.getByText('Llamada aceptada')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Finalizar llamada' }));
+    expect(socket.send).toHaveBeenLastCalledWith(JSON.stringify({ action: 'seendMessage', type: 'HANGUP', target: 'PORTERIA', message: 'Llamada finalizada' }));
+    expect(button).toBeEnabled();
+  });
+  it.each(['Aceptar', 'Rechazar'])('shows the apartment caller in the porter dialog and supports %s', (action) => {
+    setup();
+    fireEvent.click(screen.getByText('Entrar portería'));
+    openSocket();
+    const socket = FakeWebSocket.latest();
+    act(() => socket.receive({ type: 'CALL', from: 'APT_4', target: 'PORTERIA', message: 'Llamando portería' }));
+    const dialog = screen.getByRole('dialog', { name: 'Llamada entrante de apartamento 4' });
+    expect(within(dialog).getByText('Apartamento 4 está llamando')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: action }));
+    expect(socket.send).toHaveBeenLastCalledWith(JSON.stringify({
+      action: 'seendMessage', type: action === 'Aceptar' ? 'CALL_ACCEPTED' : 'CALL_REJECTED',
+      target: 'APT_4', message: action === 'Aceptar' ? 'Llamada aceptada' : 'Llamada rechazada',
+    }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
   it('receives a call outside the page, accepts, retains it during navigation and hangs up', () => {
     setup();
     fireEvent.click(screen.getByText('Entrar residente'));

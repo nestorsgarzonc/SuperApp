@@ -37,6 +37,9 @@ export function IntercomPage() {
             {!config.apartments.length && <p>No hay apartamentos configurados para este conjunto.</p>}
             <div className="btn-row"><button type="submit" className="btn" disabled={!selected || busy || state.connection !== 'connected'}>Llamar</button></div>
           </form>}
+          {config.client.role === 'apartment' && <div className="btn-row">
+            <button className="btn" disabled={busy || state.connection !== 'connected'} onClick={() => controller.callPorter()}>Llamar a portería</button>
+          </div>}
         </div>
         {state.status !== 'incoming' && <section className="card" aria-label="Llamada actual"><CallStatus /></section>}
       </>}

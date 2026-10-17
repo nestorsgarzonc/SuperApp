@@ -10,7 +10,7 @@ function setup(porter = true) {
     connect: vi.fn(), disconnect: vi.fn(), send: vi.fn(),
     subscribe: (next) => { listener = next; return () => { listener = undefined; }; },
   };
-  const controller = new IntercomController(transport, porter ? porterConfig : apartmentConfig);
+  const controller = new IntercomController(transport, { ...(porter ? porterConfig : apartmentConfig) });
   controller.start();
   const emit = (event: SocketEvent) => listener?.(event);
   emit({ kind: 'status', status: 'connected' });
@@ -19,6 +19,47 @@ function setup(porter = true) {
 }
 
 describe('Intercom call state', () => {
+  it.each(['CALL_ACCEPTED', 'CALL_REJECTED'] as const)('allows apartments to call portería and receive %s', (type) => {
+    const { controller, transport, receive } = setup(false);
+    controller.callPorter();
+    expect(transport.send).toHaveBeenLastCalledWith({ type: 'CALL', target: 'PORTERIA', message: 'Llamando portería' });
+    expect(controller.getSnapshot()).toMatchObject({ status: 'calling', call: { peer: 'PORTERIA', direction: 'outgoing' } });
+    receive({ type, from: 'PORTERIA_2', target: 'APT_4' });
+    expect(controller.getSnapshot().status).toBe('calling');
+    receive({ type, from: 'PORTERIA', target: 'APT_4' });
+    expect(controller.getSnapshot().status).toBe(type === 'CALL_ACCEPTED' ? 'accepted' : 'rejected');
+    if (type === 'CALL_ACCEPTED') {
+      controller.hangup();
+      expect(transport.send).toHaveBeenLastCalledWith({ type: 'HANGUP', target: 'PORTERIA', message: 'Llamada finalizada' });
+    }
+  });
+  it.each(['accept', 'reject'] as const)('allows portería to %s apartment calls, ignoring foreign clients', (action) => {
+    const { controller, transport, receive } = setup();
+    receive({ type: 'CALL', from: 'APT_8', target: 'PORTERIA' });
+    receive({ type: 'CALL', from: 'APT_4', target: 'PORTERIA_2' });
+    expect(controller.getSnapshot().status).toBe('idle');
+    receive({ type: 'CALL', from: 'APT_4', target: 'PORTERIA' });
+    expect(controller.getSnapshot()).toMatchObject({ status: 'incoming', call: { label: 'Apartamento 4', peer: 'APT_4' } });
+    controller[action]();
+    expect(transport.send).toHaveBeenLastCalledWith({
+      type: action === 'accept' ? 'CALL_ACCEPTED' : 'CALL_REJECTED',
+      target: 'APT_4', message: action === 'accept' ? 'Llamada aceptada' : 'Llamada rechazada',
+    });
+    if (action === 'accept') {
+      receive({ type: 'HANGUP', from: 'APT_4', target: 'PORTERIA' });
+      expect(controller.getSnapshot().status).toBe('ended');
+    }
+  });
+  it('rejects another configured apartment while portería is busy without replacing the call', () => {
+    const { controller, transport, receive } = setup();
+    controller.config.apartments = [...controller.config.apartments, {
+      complexId: 'complex-1', unitId: 'unit-5', clientId: 'APT_5', role: 'apartment', label: 'Apartamento 5',
+    }];
+    controller.callApartment('APT_4');
+    receive({ type: 'CALL', from: 'APT_5', target: 'PORTERIA' });
+    expect(transport.send).toHaveBeenLastCalledWith({ type: 'CALL_REJECTED', target: 'APT_5', message: 'Hay una llamada en curso.' });
+    expect(controller.getSnapshot()).toMatchObject({ status: 'calling', call: { peer: 'APT_4' } });
+  });
   it('keeps an internal callId, sends no ID and accepts only the active peer', () => {
     const { controller, receive, transport } = setup();
     controller.callApartment('APT_4');

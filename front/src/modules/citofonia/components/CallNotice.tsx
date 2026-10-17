@@ -14,7 +14,7 @@ export function CallNotice() {
     if (incoming) element?.showModal();
     return () => element?.close();
   }, [incoming]);
-  if (incoming) return <dialog ref={dialog} className="intercom-dialog card" aria-label="Llamada entrante de portería" onCancel={(event) => {
+  if (incoming) return <dialog ref={dialog} className="intercom-dialog card" aria-label={`Llamada entrante de ${state.call?.label.toLocaleLowerCase()}`} onCancel={(event) => {
     event.preventDefault();
     controller?.reject();
   }}>

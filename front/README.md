@@ -28,7 +28,9 @@ Abre la URL que imprima Vite (normalmente `http://localhost:5173`). Verás
 Abre un navegador/perfil como **Portería** y otro como **Apartamento 4**.
 Espera a que ambos indiquen **Conectado**; desde Portería selecciona Apartamento
 4 y pulsa **Llamar**. En el apartamento acepta o rechaza y prueba finalizar
-desde cualquiera de los dos. No uses simultáneamente otros clientes `wscat`
+desde cualquiera de los dos. También puedes iniciar desde Apartamento 4 con
+**Llamar a portería**; Portería verá quién llama y podrá aceptar o rechazar.
+No uses simultáneamente otros clientes `wscat`
 con esas identidades si no conoces la política de entrega a conexiones múltiples.
 
 Este comando carga `.env.intercom-demo`: sesiones temporales en memoria y el
@@ -48,8 +50,9 @@ o del entorno del proceso pueden sobrescribir el endpoint/directorio de prueba.
 
 La ruta `/citofonia` se integra en la navegación lateral y móvil para residentes,
 propietarios, guardias y administradores. Guardia/administrador operan como
-portería; residente/propietario reciben llamadas del apartamento asociado a su
-unidad. Reutiliza la sesión compartida, componentes `PageHead`, `Badge`, `Field`,
+portería; residente/propietario usan el apartamento asociado a su unidad.
+Ambos perfiles pueden iniciar, aceptar, rechazar y finalizar llamadas entre sí.
+Reutiliza la sesión compartida, componentes `PageHead`, `Badge`, `Field`,
 `ErrorBox`, tarjetas, botones y variables CSS existentes. No transmite ni simula
 audio/video, ni solicita permisos de micrófono.
 
@@ -89,12 +92,16 @@ para este WebSocket.
 - Se soportan `CALL`, `CALL_ACCEPTED`, `CALL_REJECTED` y `HANGUP`. Los mensajes
   de llamada recibidos necesitan `from` y `target`, pero NO `callId`.
   Solo afectan a la llamada activa si coinciden interlocutor y destino;
-  únicamente portería puede originar llamadas hacia apartamentos.
+  portería solo recibe llamadas de apartamentos del directorio de su conjunto,
+  y los apartamentos solo reciben llamadas de la portería configurada.
   También se reconocen respuestas tipadas `DELIVERED` (entrega, no aceptación)
   y `ERROR` si el backend las emite. Los errores JSON, de red y del backend
   se muestran explícitamente.
 - No se permiten llamadas simultáneas. Mientras el apartamento tiene una llamada
   activa, un `CALL` repetido de portería se ignora sin reiniciar su estado.
+  Portería también ignora repeticiones del interlocutor activo y rechaza llamadas
+  de otros apartamentos mientras está ocupada. Si ambos extremos llaman a la vez,
+  cancela y reintenta desde uno de ellos: este contrato no resuelve llamadas cruzadas.
   Rechazar/finalizar permite otra llamada. Cada interacción conserva un UUID
   exclusivamente local, que no correlaciona mensajes del backend. Sin un
   `callId` de extremo a extremo no es posible distinguir una señal atrasada de
