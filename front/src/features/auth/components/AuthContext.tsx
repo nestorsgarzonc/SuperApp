@@ -49,9 +49,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       setDevelopmentSession(false);
-      setIdentity(authenticated);
-      if (authenticated.complexes.length > 1) navigate('/select-complex');
-      else { setActiveComplex(authenticated.complexes[0] ?? null); navigate('/dashboard'); }
+      if (authenticated.complexes.length > 1) {
+        setIdentity(authenticated);
+        navigate('/select-complex');
+      } else {
+        const only = authenticated.complexes[0]!;
+        setActiveComplex(only);
+        setIdentity({ ...authenticated, permissions: only.permissions ?? [], activeComplex: only });
+        navigate('/dashboard');
+      }
     } finally { setLoading(false); }
   }, [navigate]);
   const signInDevelopment = useCallback((session: Session) => {
