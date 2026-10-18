@@ -1,5 +1,7 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 let accessToken: string | null = null;
+let refreshToken: string | null = null;
+export function setRefreshToken(t: string | null): void { refreshToken = t; }
 let refreshInFlight: Promise<boolean> | null = null;
 
 export class HttpError extends Error {
@@ -16,10 +18,13 @@ async function refreshSession(): Promise<boolean> {
   if (!refreshInFlight) {
     refreshInFlight = fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
     }).then(async (response) => {
       if (!response.ok) return false;
-      const payload: { access_token?: string; tokens?: { access_token: string } } = await response.json();
+      const payload: { access_token?: string; refresh_token?: string; tokens?: { access_token: string; refresh_token?: string } } = await response.json();
       const token = payload.access_token ?? payload.tokens?.access_token;
+      const nextRefresh = payload.refresh_token ?? payload.tokens?.refresh_token;
+      if (nextRefresh) refreshToken = nextRefresh;
       if (!token) return false;
       setAccessToken(token);
       return true;

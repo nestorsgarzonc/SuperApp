@@ -1,4 +1,4 @@
-import { apiFetch, setAccessToken } from '../../../lib/http';
+import { apiFetch, setAccessToken, setRefreshToken } from '../../../lib/http';
 import { demoMemberships, permissionsForRole } from '../demoDirectory';
 
 export interface Complex { id: string; name: string; address: string; status: 'Activo' | 'Pendiente'; role?: string; permissions?: string[]; unitId?: string; unitName?: string; }
@@ -10,6 +10,7 @@ export async function login(email: string, password: string, _remember: boolean)
     method: 'POST', body: JSON.stringify({ email: email.trim().toLowerCase(), password, device_name: 'Navegador web' }),
   });
   setAccessToken(response.tokens.access_token);
+  setRefreshToken(response.tokens.refresh_token ?? null);
   const userEmail = response.user.email.toLowerCase();
   const complexes: Complex[] = (demoMemberships[userEmail] ?? []).map((m) => ({
     id: m.id, name: m.name, address: '', status: 'Activo' as const,
