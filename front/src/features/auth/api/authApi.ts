@@ -15,6 +15,7 @@ export async function login(email: string, password: string, _remember: boolean)
   const complexes: Complex[] = (demoMemberships[userEmail] ?? []).map((m) => ({
     id: m.id, name: m.name, address: '', status: 'Activo' as const,
     role: m.role, permissions: permissionsForRole[m.role],
+    unitId: m.unitId, unitName: m.unitName,
   }));
   return {
     id: response.user.id,

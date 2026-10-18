@@ -15,12 +15,13 @@ export function SessionBridge() {
       complexId: activeComplex.id,
       complexName: activeComplex.name,
       unitId: activeComplex.unitId ?? '',
+      unitName: activeComplex.unitName,
       userId: identity.id,
       role,
       name: identity.name,
       subtitle: activeComplex.name,
       memberships: identity.complexes.map((c) => ({
-        complexId: c.id, complexName: c.name, role: (c.role ?? 'RESIDENT') as Role,
+        complexId: c.id, complexName: c.name, role: (c.role ?? 'RESIDENT') as Role, unitId: c.unitId, unitName: c.unitName,
       })),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
