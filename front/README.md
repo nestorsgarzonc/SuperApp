@@ -82,6 +82,34 @@ incorporadas al build: no pongas secretos en ellas. Reinicia Vite al cambiarlas;
 para producción configúralas antes de compilar. El proxy HTTP de Vite no se usa
 para este WebSocket.
 
+### Despliegue de pruebas: Ana Garcia y Porteria
+
+`.env.production` incluye un directorio temporal para **Los Pinos**:
+
+- **Ana Garcia** (`ana.garcia@demo.test`): conserva su unidad **A-101**
+  (`10000000-0000-0000-0000-000000000101`) en la sesion y en los demas modulos.
+  Solo en Citofonia esa unidad usa el alias WebSocket **APT_4**.
+- **Luis Mora** (`luis.mora@demo.test`): su rol de guardia en el mismo conjunto
+  usa **PORTERIA**. Los administradores de Los Pinos tambien usan esa identidad.
+
+No se modifican usuarios, contrasenas ni unidades del backend. El login normal
+ya incorpora estas unidades desde `src/features/auth/demoDirectory.ts`.
+Esta asignacion no incluye los otros apartamentos ni el conjunto Alto del Bosque;
+sus identidades deben configurarse antes de probarlos en Citofonia.
+
+Ejecuta `npm run build` y publica el contenido generado de `dist/` en el hosting
+actual (S3 o GitHub Pages). Vite carga `.env.production` durante ese build; no basta
+con reiniciar el hosting o cambiar variables despues de compilar. Las variables
+del entorno del proceso y `.env.production.local` pueden sobrescribir estos
+valores: revisa que no definan `VITE_INTERCOM_CLIENTS` como una cadena vacia.
+
+Para probar, abre dos perfiles de navegador: Ana y Luis, ambos en Los Pinos,
+y entra en `/citofonia`. Ana debe identificarse como `APT_4` y Luis como
+`PORTERIA`; ambos podran iniciar la llamada. No conectes el demo aislado
+simultaneamente con esas mismas identidades.
+Antes de usarlo con usuarios reales, reemplaza este directorio temporal por las
+asociaciones validadas del backend.
+
 ### Flujo y ciclo de vida
 
 - En una sesión autenticada se abre una sola conexión, independiente de la ruta.
