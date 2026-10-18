@@ -1,12 +1,13 @@
 import { api as client } from '../../shared/api/client';
 
 /**
- * Todo el ms va bajo un solo recurso del API Gateway:
- * /api/v1/notifications/{proxy+} → http://<ec2>:8083/{proxy}. El prefijo se
- * quita en el gateway, por eso las rutas del ms quedan intactas.
+ * Punto único de acceso al ms de notificaciones. Todo va bajo un solo recurso
+ * del API Gateway: /api/v1/notifications/{proxy+} → http://<ec2>:8083/{proxy}.
+ * El prefijo se quita en el gateway, por eso las rutas del ms quedan intactas.
+ * Son llamadas accesorias: un 401 aquí no cierra la sesión de la app.
  */
 const PREFIX = '/notifications';
-const api: typeof client = (path, ...rest) => client(PREFIX + path, ...rest);
+const api: typeof client = (path, opts = {}, ...rest) => client(PREFIX + path, { ...opts, optional: true }, ...rest);
 
 /** Contrato: back/notificaciones/API.md */
 

@@ -1,7 +1,7 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 let accessToken: string | null = null;
+// Auth rota el refresh token en cada uso (un solo uso): se guarda siempre el último.
 let refreshToken: string | null = null;
-export function setRefreshToken(t: string | null): void { refreshToken = t; }
 let refreshInFlight: Promise<boolean> | null = null;
 
 export class HttpError extends Error {
@@ -13,8 +13,12 @@ export class HttpError extends Error {
 
 export function setAccessToken(token: string | null): void { accessToken = token; }
 export function getAccessToken(): string | null { return accessToken; }
+export function setRefreshToken(token: string | null): void { refreshToken = token; }
+export function getRefreshToken(): string | null { return refreshToken; }
 
-async function refreshSession(): Promise<boolean> {
+/** Único refresh de la app (lo usan apiFetch y shared/api/client); concurrentes comparten la misma llamada. */
+export async function refreshSession(): Promise<boolean> {
+  if (!refreshToken) return false;
   if (!refreshInFlight) {
     refreshInFlight = fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

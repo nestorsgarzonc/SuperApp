@@ -1,3 +1,5 @@
+import { getAccessToken, refreshSession } from '../../lib/http';
+
 const BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 
 export class ApiError extends Error {
@@ -49,21 +51,14 @@ export const setApiSession = (s: Session | null) => {
   if (import.meta.env.DEV) (window as unknown as { __superappSession?: Session | null }).__superappSession = s;
 };
 
-let refreshRequest: Promise<string | null> | null = null;
+// El refresh es el de lib/http (uno solo para toda la app); aquí solo se actualiza la sesión.
 async function refreshAccessToken(): Promise<string | null> {
-  if (!refreshRequest) {
-    refreshRequest = fetch(`${BASE}/auth/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
-      .then(async (response) => {
-        if (!response.ok) return null;
-        const json = await response.json() as { access_token?: string; data?: { access_token?: string }; tokens?: { access_token?: string } };
-        const token = json.access_token ?? json.data?.access_token ?? json.tokens?.access_token;
-        if (!token || !session) return null;
-        setApiSession({ ...session, token });
-        window.dispatchEvent(new CustomEvent('superapp:access-token-refreshed', { detail: { token } }));
-        return token;
-      }).catch(() => null).finally(() => { refreshRequest = null; });
-  }
-  return refreshRequest;
+  if (!(await refreshSession())) return null;
+  const token = getAccessToken();
+  if (!token || !session) return null;
+  setApiSession({ ...session, token });
+  window.dispatchEvent(new CustomEvent('superapp:access-token-refreshed', { detail: { token } }));
+  return token;
 }
 
 interface Envelope<T> {
@@ -76,6 +71,11 @@ interface RequestOpts {
   method?: string;
   body?: unknown;
   auth?: boolean;
+  /**
+   * Llamada accesoria (p. ej. notificaciones): si responde 401 y el refresh no
+   * lo arregla, falla sola sin cerrar la sesión de la app.
+   */
+  optional?: boolean;
 }
 
 export async function api<T>(path: string, opts: RequestOpts = {}, retry = true): Promise<T> {
@@ -101,8 +101,10 @@ export async function api<T>(path: string, opts: RequestOpts = {}, retry = true)
   if (res.status === 401 && opts.auth !== false && retry && path !== '/auth/refresh') {
     const token = await refreshAccessToken();
     if (token) return api<T>(path, opts, false);
-    setApiSession(null);
-    window.dispatchEvent(new CustomEvent('superapp:session-expired'));
+    if (!opts.optional) {
+      setApiSession(null);
+      window.dispatchEvent(new CustomEvent('superapp:session-expired'));
+    }
   }
   if (!res.ok) {
     const err = json?.error;

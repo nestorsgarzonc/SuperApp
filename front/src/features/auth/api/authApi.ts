@@ -1,4 +1,4 @@
-import { apiFetch, setAccessToken, setRefreshToken } from '../../../lib/http';
+import { apiFetch, getRefreshToken, setAccessToken, setRefreshToken } from '../../../lib/http';
 import { demoMemberships, permissionsForRole } from '../demoDirectory';
 
 export interface Complex { id: string; name: string; address: string; status: 'Activo' | 'Pendiente'; role?: string; permissions?: string[]; unitId?: string; unitName?: string; }
@@ -37,6 +37,10 @@ export async function resetPassword(token: string, password: string): Promise<vo
   await apiFetch<void>('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, password }) });
 }
 export async function logout(all = false): Promise<void> {
-  await apiFetch<void>(all ? '/auth/logout-all' : '/auth/logout', { method: 'POST' });
-  setAccessToken(null);
+  try {
+    await apiFetch<void>(all ? '/auth/logout-all' : '/auth/logout', { method: 'POST', body: JSON.stringify({ refresh_token: getRefreshToken() }) });
+  } finally {
+    setAccessToken(null);
+    setRefreshToken(null);
+  }
 }
