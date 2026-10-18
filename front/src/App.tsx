@@ -47,7 +47,7 @@ function App() {
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
       <Route path="*" element={<Navigate to={demo ? '/citofonia' : '/'} replace />} />
     </Routes>
-    {import.meta.env.DEV && developmentSession && !demo && <DevPanel />}
+    {DEV_LOGIN_ENABLED && developmentSession && !demo && <DevPanel />}
     </IntercomProvider>;
   }
   if (demo) return <DemoLoginPage />;
