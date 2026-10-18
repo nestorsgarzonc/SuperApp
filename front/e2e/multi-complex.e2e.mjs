@@ -8,6 +8,10 @@ import { fileURLToPath } from 'node:url';
 const OUT = fileURLToPath(new URL('./shots/', import.meta.url));
 mkdirSync(OUT, { recursive: true });
 const APP = process.env.APP_URL ?? 'http://localhost:5173';
+// La sesión de prueba vive en memoria: navegar sin recargar la página para no perderla.
+const go = async (page, path) => { await page.evaluate((p) => { history.pushState({}, '', p); dispatchEvent(new PopStateEvent('popstate')); }, path); };
+// Estas pruebas son de control-de-accesos: la campana de notificaciones (otro ms) responde vacía.
+const stubNotifications = (page) => page.route('**/api/v1/notifications/**', (r) => r.fulfill({ json: { success: true, data: { count: 0 } } }));
 const C1 = 'Conjunto Residencial Los Pinos', C2 = 'Conjunto Alto del Bosque';
 let fails = 0, total = 0;
 const ok = (n, c, x = '') => { total++; if (!c) fails++; console.log(`${c ? 'PASS' : 'FAIL'}  ${n}${x ? '  → ' + x : ''}`); };
@@ -16,14 +20,15 @@ const section = (t) => console.log(`\n== ${t}`);
 const browser = await chromium.launch({ channel: process.env.E2E_CHANNEL ?? 'msedge', headless: true });
 const errors = [];
 const mk = async (viewport = { width: 390, height: 844 }) => {
-  const ctx = await browser.newContext({ viewport, deviceScaleFactor: 1 });
+  const ctx = await browser.newContext({ serviceWorkers: 'block', viewport, deviceScaleFactor: 1 });
   return ctx;
 };
 const open = async (ctx, tag) => {
   const p = await ctx.newPage();
+  await stubNotifications(p);
   p.on('pageerror', (e) => errors.push(`${tag}: ${e.message}`));
-  p.on('console', (m) => m.type() === 'error' && errors.push(`${tag}: ${m.text()}`));
-  await p.goto(APP);
+  p.on('console', (m) => m.type() === 'error' && !/favicon/.test(m.location().url) && errors.push(`${tag}: ${m.text()}`));
+  await p.goto(APP + '/dev-login');
   await p.getByTestId('dev-login').waitFor();
   return p;
 };
@@ -33,9 +38,9 @@ const chipText = async (p) => {
   if (await sel.count()) return (await sel.locator('option:checked').innerText()).trim();
   return (await p.locator('.topbar .chip').innerText()).trim();
 };
-const sess = (p) => p.evaluate(() => JSON.parse(localStorage.getItem('superapp.session')));
+const sess = (p) => p.evaluate(() => window.__superappSession);
 const api = (p, path, init = {}) => p.evaluate(async ([path, init]) => {
-  const s = JSON.parse(localStorage.getItem('superapp.session'));
+  const s = window.__superappSession;
   const r = await fetch('/api/v1' + path, { ...init, headers: { Authorization: 'Bearer ' + s.token, 'Content-Type': 'application/json', ...(init.headers ?? {}) } });
   return { s: r.status, d: (await r.json().catch(() => null))?.data };
 }, [path, init]);
@@ -83,7 +88,7 @@ ok('el pase muestra el conjunto 1', await sofia.locator('.pass').getByText(C1).i
 
 // cambia al conjunto 2 desde el selector
 await sofia.locator('select.chip-select').selectOption({ label: new RegExp('x').source && (await sofia.locator('select.chip-select option').allInnerTexts()).find((t) => t.includes(C2)) });
-await sofia.waitForFunction((n) => JSON.parse(localStorage.getItem('superapp.session')).complexName === n, C2);
+await sofia.waitForFunction((n) => window.__superappSession.complexName === n, C2);
 ss = await sess(sofia);
 ok('cambia a Alto del Bosque: otra unidad (B-202), mismo rol', ss.complexName === C2 && ss.unitName === 'B-202' && ss.role === 'RESIDENT');
 ok('el token cambió de conjunto', ss.complexId.endsWith('0002'));
@@ -107,8 +112,8 @@ ok('con token @2, su unidad B-202 lista sus grants del 2', g1.some((g) => g.visi
 ok('el grant del conjunto 1 no es visible en B-202', !g1.some((g) => g.visitor_name === 'Visita de Sofía en Pinos'), `unidad A-102 con token @2 → ${cross.s} (unit-scoped por membresía)`);
 // vuelve al 1 y vuelve a ver el suyo
 await sofia.locator('select.chip-select').selectOption({ label: (await sofia.locator('select.chip-select option').allInnerTexts()).find((t) => t.includes(C1)) });
-await sofia.waitForFunction((n) => JSON.parse(localStorage.getItem('superapp.session')).complexName === n, C1);
-await sofia.goto(APP + '/autorizaciones');
+await sofia.waitForFunction((n) => window.__superappSession.complexName === n, C1);
+await go(sofia, '/autorizaciones');
 await sofia.getByText('Visita de Sofía en Pinos').waitFor();
 ok('de vuelta en Pinos ve su pase del conjunto 1', true);
 
@@ -128,7 +133,7 @@ await ana.getByRole('button', { name: 'Autorizar visitante' }).first().click();
 await ana.getByRole('heading', { name: 'Pase de acceso' }).waitFor();
 ok('el pase de pre-autorización muestra el documento (sin QR)', (await ana.getByText('Documento: COL424242').count()) > 0 && (await ana.locator('.pass-qr img').count()) === 0);
 await ana.screenshot({ path: path.join(OUT, '13-preauth-pase.png') });
-await ana.goto(APP + '/autorizaciones');
+await go(ana, '/autorizaciones');
 await ana.getByText(/Por documento/).first().waitFor();
 ok('en la lista figura "Por documento"', await ana.getByText(/Por documento/).first().isVisible());
 
@@ -166,7 +171,7 @@ await luis.getByRole('button', { name: 'Registrar ingreso' }).click();
 await luis.getByRole('button', { name: 'Registrar ingreso' }).click();
 await luis.getByText(/Ingreso registrado correctamente/).waitFor();
 // segunda vez la misma cédula → ya usada
-await luis.goto(APP + '/porteria/validar');
+await go(luis, '/porteria/validar');
 await luis.getByRole('tab', { name: /Documento/ }).click();
 await luis.getByPlaceholder('1.020.345.678').fill('COL424242');
 await luis.getByRole('button', { name: 'Validar pase' }).click();
@@ -188,7 +193,7 @@ await andres.waitForSelector('.shell');
 ok('en Alto del Bosque entra como PORTERÍA', (await sess(andres)).role === 'GUARD' && (await andres.getByText('Operación en tiempo real').count()) > 0);
 ok('ve las acciones de portería', (await andres.getByRole('link', { name: /VALIDAR PASE/ }).count()) === 1);
 // el envío falla (servidor inalcanzable para POST /access-logs) aunque haya red para lo demás
-await andres.goto(APP + '/porteria/movimiento');
+await go(andres, '/porteria/movimiento');
 let postsAfterSwitch = 0, switched = false;
 await andres.route('**/api/v1/access-logs*', (r) => {
   if (r.request().method() === 'POST') { if (switched) postsAfterSwitch++; return r.abort(); }
@@ -202,23 +207,25 @@ await andres.waitForTimeout(600);
 const q1 = await andres.evaluate(() => JSON.parse(localStorage.getItem('superapp.accessLog.pending')));
 ok('queda en cola local, atado al conjunto 2 y a Andrés', q1.length === 1 && q1[0].complexId.endsWith('0002') && q1[0].userId.endsWith('0007'));
 // cambia a residente del conjunto 1 ANTES de que se sincronice
-await andres.goto(APP + '/');
+await go(andres, '/');
 await andres.waitForSelector('select.chip-select');
 switched = true;
 await andres.locator('select.chip-select').selectOption({ label: (await andres.locator('select.chip-select option').allInnerTexts()).find((t) => t.includes(C1)) });
-await andres.waitForFunction(() => JSON.parse(localStorage.getItem('superapp.session')).role === 'RESIDENT');
+await andres.waitForFunction(() => window.__superappSession.role === 'RESIDENT');
 ok('en Pinos entra como RESIDENTE (sin portería)', (await andres.getByText('Hola, Andrés').count()) > 0 && (await andres.getByRole('link', { name: /VALIDAR PASE/ }).count()) === 0);
-await andres.goto(APP + '/porteria/validar');
+await go(andres, '/porteria/validar');
 await andres.waitForTimeout(400);
-ok('residente en Pinos no entra a /porteria/validar (aunque sea guardia en el 2)', new URL(andres.url()).pathname === '/');
+ok('residente en Pinos no entra a /porteria/validar (aunque sea guardia en el 2)', new URL(andres.url()).pathname === '/unauthorized');
 await andres.evaluate(() => window.dispatchEvent(new Event('online')));
 await andres.waitForTimeout(1200);
 const q2 = await andres.evaluate(() => JSON.parse(localStorage.getItem('superapp.accessLog.pending')));
 ok('el registro del conjunto 2 sigue en cola y NO se intentó enviar con la sesión del conjunto 1', q2.length === 1 && postsAfterSwitch === 0, `cola=${q2.length}, POST con sesión del 1=${postsAfterSwitch}`);
 await andres.unroute('**/api/v1/access-logs*');
 // vuelve al 2 → se sincroniza al conjunto 2
+await go(andres, '/');
+await andres.waitForSelector('select.chip-select');
 await andres.locator('select.chip-select').selectOption({ label: (await andres.locator('select.chip-select option').allInnerTexts()).find((t) => t.includes(C2)) });
-await andres.waitForFunction(() => JSON.parse(localStorage.getItem('superapp.session')).role === 'GUARD');
+await andres.waitForFunction(() => window.__superappSession.role === 'GUARD');
 await andres.waitForSelector('text=Operación en tiempo real');
 await andres.getByRole('button', { name: 'Sincronizar ahora' }).click().catch(() => {});
 await andres.waitForTimeout(1500);
@@ -235,7 +242,7 @@ const dctx = await mk({ width: 1280, height: 800 });
 const carlos = await open(dctx, 'carlos');
 await card(carlos, 'Carlos Rojas').click();
 await carlos.waitForSelector('.shell');
-await carlos.goto(APP + '/historial');
+await go(carlos, '/historial');
 await carlos.getByRole('heading', { name: 'Historial de accesos' }).waitFor();
 await carlos.locator('select[aria-label=Fecha]').selectOption('all');
 await carlos.waitForTimeout(800);

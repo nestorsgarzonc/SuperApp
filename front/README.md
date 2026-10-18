@@ -43,6 +43,10 @@ AWS disponible; no es una simulación offline.
 Si ya ejecutas `npm run dev`, detenlo primero con Ctrl+C y arranca el comando
 de prueba. No hace falta editar `.env.production`. Para volver a la aplicación
 normal, detén este proceso y ejecuta `npm run dev`.
+En modo normal se conservan las rutas de accesos, edificio, portería, historial
+y notificaciones con sus permisos y servicios habituales. Las sesiones de
+`/dev-login` mantienen el selector de conjuntos y el panel de pruebas de QR;
+solo el demo aislado de Citofonía omite estas herramientas y sus peticiones HTTP.
 El modo requiere tanto `import.meta.env.DEV` como `VITE_INTERCOM_DEMO=true`;
 no habilita sesiones de prueba en builds de producción, incluso si se compilan
 con `--mode intercom-demo`. Las variables específicas de `.env.intercom-demo.local`

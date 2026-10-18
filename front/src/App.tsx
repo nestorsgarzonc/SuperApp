@@ -12,6 +12,8 @@ import { NotificationBell } from './modules/notificaciones/components/Notificati
 import { disablePush, syncPush } from './modules/notificaciones/push';
 import { AuthComplexSwitcher, AuthSessionBridge } from './features/auth/components/AuthIntegration';
 import { DevLoginPage } from './modules/control-de-accesos/dev/DevLoginPage';
+import { ComplexSwitcher } from './modules/control-de-accesos/dev/ComplexSwitcher';
+import { DevPanel } from './modules/control-de-accesos/dev/DevPanel';
 import { IntercomProvider, useIntercom } from './modules/citofonia/IntercomContext';
 import { intercomRoutes } from './modules/citofonia/routes';
 import { isIntercomDemo } from './modules/citofonia/dev/demo';
@@ -19,14 +21,16 @@ import { DemoLoginPage } from './modules/citofonia/dev/DemoLoginPage';
 
 function SessionShell({ onLogout }: { onLogout: (all?: boolean) => Promise<void> }) {
   const { controller } = useIntercom();
-  return <AppShell intercomOnly={isIntercomDemo()} complexSlot={<AuthComplexSwitcher />} bellSlot={isIntercomDemo() ? undefined : <NotificationBell />} onLogout={async (all) => {
+  const { developmentSession } = useAuth();
+  const demo = isIntercomDemo();
+  return <AppShell intercomOnly={demo} complexSlot={developmentSession && !demo ? <ComplexSwitcher /> : <AuthComplexSwitcher />} bellSlot={demo ? undefined : <NotificationBell />} onLogout={async (all) => {
     controller?.stop();
     await onLogout(all);
   }} />;
 }
 
 function App() {
-  const { identity, activeComplex, signOut } = useAuth();
+  const { identity, activeComplex, developmentSession, signOut } = useAuth();
   const { session, logout } = useSession();
   // Antes de signOut: el unregister del push necesita la sesión vigente.
   const demo = isIntercomDemo();
@@ -41,7 +45,9 @@ function App() {
       <Route element={<SessionShell onLogout={onLogout} />}>{!demo && accessControlRoutes}{!demo && notificationRoutes}{intercomRoutes}</Route>
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
       <Route path="*" element={<Navigate to={demo ? '/citofonia' : '/'} replace />} />
-    </Routes></IntercomProvider>;
+    </Routes>
+    {import.meta.env.DEV && developmentSession && !demo && <DevPanel />}
+    </IntercomProvider>;
   }
   if (demo) return <DemoLoginPage />;
   return <>

@@ -6,6 +6,8 @@ import type { Membership, Role, Session } from '../../../shared/api/client';
 
 interface AuthContextValue {
   identity: AuthIdentity | null; activeComplex: Complex | null; loading: boolean;
+  /** Sesión creada desde /dev-login (sin el ms de auth). */
+  developmentSession: boolean;
   signIn: (email: string, password: string, remember: boolean) => Promise<void>;
   signInDevelopment: (session: Session) => void;
   selectComplex: (complex: Complex) => Promise<Complex>; signOut: (all?: boolean) => Promise<void>;
@@ -49,9 +51,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       setDevelopmentSession(false);
-      setIdentity(authenticated);
-      if (authenticated.complexes.length > 1) navigate('/select-complex');
-      else { setActiveComplex(authenticated.complexes[0] ?? null); navigate('/dashboard'); }
+      if (authenticated.complexes.length > 1) {
+        setIdentity(authenticated);
+        navigate('/select-complex');
+      } else {
+        const only = authenticated.complexes[0]!;
+        setActiveComplex(only);
+        setIdentity({ ...authenticated, permissions: only.permissions ?? [], activeComplex: only });
+        navigate('/dashboard');
+      }
     } finally { setLoading(false); }
   }, [navigate]);
   const signInDevelopment = useCallback((session: Session) => {
@@ -99,7 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener('superapp:access-token-refreshed', refreshed);
     return () => { window.removeEventListener('superapp:session-expired', expire); window.removeEventListener('superapp:access-token-refreshed', refreshed); };
   }, [navigate]);
-  const value = useMemo(() => ({ identity, activeComplex, loading, signIn, signInDevelopment, selectComplex, signOut }), [identity, activeComplex, loading, signIn, signInDevelopment, selectComplex, signOut]);
+  const value = useMemo(() => ({ identity, activeComplex, loading, developmentSession, signIn, signInDevelopment, selectComplex, signOut }), [identity, activeComplex, loading, developmentSession, signIn, signInDevelopment, selectComplex, signOut]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 export function useAuth(): AuthContextValue {

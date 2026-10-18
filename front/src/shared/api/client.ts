@@ -45,6 +45,8 @@ let session: Session | null = null;
 export const getSession = () => session;
 export const setApiSession = (s: Session | null) => {
   session = s;
+  // Solo dev: las pruebas e2e leen la sesión en memoria (no existe en el build de producción).
+  if (import.meta.env.DEV) (window as unknown as { __superappSession?: Session | null }).__superappSession = s;
 };
 
 let refreshRequest: Promise<string | null> | null = null;

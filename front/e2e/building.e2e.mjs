@@ -8,6 +8,10 @@ import { fileURLToPath } from 'node:url';
 const OUT = fileURLToPath(new URL('./shots/', import.meta.url));
 mkdirSync(OUT, { recursive: true });
 const APP = process.env.APP_URL ?? 'http://localhost:5173';
+// La sesión de prueba vive en memoria: navegar sin recargar la página para no perderla.
+const go = async (page, path) => { await page.evaluate((p) => { history.pushState({}, '', p); dispatchEvent(new PopStateEvent('popstate')); }, path); };
+// Estas pruebas son de control-de-accesos: la campana de notificaciones (otro ms) responde vacía.
+const stubNotifications = (page) => page.route('**/api/v1/notifications/**', (r) => r.fulfill({ json: { success: true, data: { count: 0 } } }));
 const C1 = 'Conjunto Residencial Los Pinos', C2 = 'Conjunto Alto del Bosque';
 let fails = 0, total = 0;
 const ok = (n, c, x = '') => { total++; if (!c) fails++; console.log(`${c ? 'PASS' : 'FAIL'}  ${n}${x ? '  → ' + x : ''}`); };
@@ -16,11 +20,12 @@ const section = (t) => console.log(`\n== ${t}`);
 const browser = await chromium.launch({ channel: process.env.E2E_CHANNEL ?? 'msedge', headless: true });
 const errors = [];
 const open = async (name, viewport = { width: 390, height: 844 }) => {
-  const ctx = await browser.newContext({ viewport });
+  const ctx = await browser.newContext({ serviceWorkers: 'block', viewport });
   const p = await ctx.newPage();
+  await stubNotifications(p);
   p.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
-  p.on('console', (m) => m.type() === 'error' && errors.push(`${name}: ${m.text()}`));
-  await p.goto(APP);
+  p.on('console', (m) => m.type() === 'error' && !/favicon/.test(m.location().url) && errors.push(`${name}: ${m.text()}`));
+  await p.goto(APP + '/dev-login');
   await p.getByTestId('dev-login').waitFor();
   await p.getByTestId('dev-login').getByRole('button', { name: new RegExp(name) }).click();
   return p;
@@ -44,6 +49,7 @@ await ana.screenshot({ path: path.join(OUT, '20-edificio-inicial.png') });
 
 await inBtn(ana).click();
 await ana.getByText(/Ingreso registrado/).waitFor();
+await status(ana).getByText('Estás dentro del edificio').waitFor({ timeout: 5000 }).catch(() => {});
 ok('ingresa: estado "dentro del edificio"', await status(ana).getByText('Estás dentro del edificio').isVisible());
 ok('"Ingresar" se deshabilita, "Salir" queda disponible', !(await inBtn(ana).isEnabled()) && (await outBtn(ana).isEnabled()));
 ok('muestra desde cuándo', await status(ana).getByText(/Desde Hoy/).isVisible());
@@ -52,11 +58,16 @@ await ana.screenshot({ path: path.join(OUT, '21-edificio-dentro.png') });
 
 await outBtn(ana).click();
 await ana.getByText(/Salida registrado/).waitFor();
+await status(ana).getByText('Estás fuera del edificio').waitFor({ timeout: 5000 }).catch(() => {});
 ok('sale: estado "fuera del edificio"', await status(ana).getByText('Estás fuera del edificio').isVisible());
 ok('"Salir" se deshabilita, "Ingresar" disponible', !(await outBtn(ana).isEnabled()) && (await inBtn(ana).isEnabled()));
 ok('historial con 2 movimientos (salida arriba)', (await ana.locator('.list li').count()) === 2 && (await ana.locator('.list li').first().innerText()).includes('Salida del edificio'));
 await ana.screenshot({ path: path.join(OUT, '22-edificio-fuera.png') });
-await ana.reload();
+// Recarga real: la sesión vive en memoria, así que se vuelve a entrar.
+await ana.goto(APP + '/dev-login');
+await ana.getByTestId('dev-login').getByRole('button', { name: /Ana García/ }).click();
+await ana.waitForSelector('.shell');
+await goBuilding(ana);
 await status(ana).getByText('Estás fuera del edificio').waitFor();
 ok('al recargar, el estado se conserva (viene del servidor)', true);
 
@@ -72,12 +83,14 @@ await outBtn(ana).waitFor();
 await ana.route('**/api/v1/resident-movements', (r) => (r.request().method() === 'POST' ? r.abort() : r.continue()));
 await outBtn(ana).click();
 await ana.getByText(/Sin conexión con el servidor/).waitFor();
+await status(ana).getByText('Estás dentro del edificio').waitFor({ timeout: 5000 }).catch(() => {});
 ok('sin conexión: muestra error y NO cambia el estado', await status(ana).getByText('Estás dentro del edificio').isVisible());
 await ana.unroute('**/api/v1/resident-movements');
 await outBtn(ana).click();
 await ana.getByText(/Salida registrado/).waitFor();
+await status(ana).getByText('Estás fuera del edificio').waitFor({ timeout: 5000 }).catch(() => {});
 ok('al reintentar con red, se registra', await status(ana).getByText('Estás fuera del edificio').isVisible());
-await ana.goto(APP + '/edificio');
+await go(ana, '/edificio');
 await inBtn(ana).click();   // Ana queda DENTRO para las pruebas de portería
 await ana.getByText(/Ingreso registrado/).waitFor();
 
@@ -88,14 +101,14 @@ await luis.getByTestId('presence-card').getByText('Ana García').waitFor();
 const card = luis.getByTestId('presence-card');
 ok('Luis (guardia 1) ve "Residentes dentro del edificio (1)" con Ana', (await card.innerText()).includes('(1)') && (await card.innerText()).includes('A-101'));
 const recent = luis.locator('.card', { hasText: 'Accesos recientes' });
-await recent.getByText('Ana García').waitFor({ timeout: 8000 }).catch(async () => console.log('DEBUG recientes:', JSON.stringify(await recent.innerText()), '| logs:', await luis.evaluate(() => localStorage.getItem('superapp.accessLog.pending'))));
+await recent.getByText('Ana García').first().waitFor({ timeout: 8000 }).catch(async () => console.log('DEBUG recientes:', JSON.stringify(await recent.innerText()), '| logs:', await luis.evaluate(() => localStorage.getItem('superapp.accessLog.pending'))));
 ok('"Accesos recientes" de portería lista el ingreso de la residente', (await recent.innerText()).includes('Ingreso al edificio'));
 await luis.screenshot({ path: path.join(OUT, '23-porteria-presencia.png') });
 
 const carlos = await open('Carlos Rojas', { width: 1280, height: 800 });
 await carlos.getByTestId('presence-card').getByText('Ana García').waitFor();
 ok('Carlos (admin 1) también la ve', true);
-await carlos.goto(APP + '/historial');
+await go(carlos, '/historial');
 await carlos.locator('select[aria-label=Fecha]').selectOption('all');
 await carlos.locator('table tbody tr').first().waitFor();
 const t = await carlos.locator('table tbody').innerText();
@@ -110,7 +123,7 @@ await marta.waitForTimeout(500);
 ok('Marta (guardia del conjunto 2) NO ve a Ana', (await marta.getByTestId('presence-card').getByText('Ana García').count()) === 0 && (await marta.getByTestId('presence-card').innerText()).includes('(0)'));
 
 // Ana sale → desaparece de la presencia al actualizar
-await ana.goto(APP + '/edificio');
+await go(ana, '/edificio');
 await outBtn(ana).click();
 await ana.getByText(/Salida registrado/).waitFor();
 await luis.getByRole('button', { name: 'Actualizar' }).click();
@@ -118,10 +131,10 @@ await luis.getByText('No hay residentes dentro en este momento.').waitFor();
 ok('Ana sale → Luis la ve desaparecer al actualizar', true);
 
 section('Permisos de pantalla');
-await luis.goto(APP + '/edificio');
+await go(luis, '/edificio');
 await luis.waitForTimeout(400);
-ok('el guardia no entra a /edificio (redirige)', new URL(luis.url()).pathname === '/');
-ok('el residente no ve la tarjeta de presencia en su inicio', (await ana.goto(APP + '/'), await ana.waitForSelector('.shell'), (await ana.getByTestId('presence-card').count()) === 0));
+ok('el guardia no entra a /edificio (redirige)', new URL(luis.url()).pathname === '/unauthorized');
+ok('el residente no ve la tarjeta de presencia en su inicio', (await go(ana, '/'), await ana.waitForSelector('.shell'), (await ana.getByTestId('presence-card').count()) === 0));
 
 section('Sofía (en ambos conjuntos): el estado es por conjunto');
 const sofia = await open('Sofía');
@@ -131,15 +144,17 @@ await sofia.waitForSelector('.shell');
 await goBuilding(sofia);
 await inBtn(sofia).click();
 await sofia.getByText(/Ingreso registrado/).waitFor();
+await status(sofia).getByText('Estás dentro del edificio').waitFor({ timeout: 5000 }).catch(() => {});
 ok('Sofía entra en Los Pinos (unidad A-102)', (await status(sofia).getByText('Estás dentro del edificio').isVisible()) && (await sofia.getByText(/A-102/).count()) >= 1);
 await sofia.locator('select.chip-select').selectOption({ label: (await sofia.locator('select.chip-select option').allInnerTexts()).find((x) => x.includes(C2)) });
-await sofia.waitForFunction((n) => JSON.parse(localStorage.getItem('superapp.session')).complexName === n, C2);
+await sofia.waitForFunction((n) => window.__superappSession.complexName === n, C2);
 await goBuilding(sofia);
 await status(sofia).getByText('Aún no has registrado movimientos').waitFor();
 ok('en Alto del Bosque aparece SIN movimientos (no hereda el estado del otro conjunto)', (await sofia.locator('.list li').count()) === 0);
 await inBtn(sofia).click();
 await sofia.getByText(/Ingreso registrado/).waitFor();
 ok('entra también en Alto del Bosque (unidad B-202)', (await sofia.getByText(/B-202/).count()) >= 1);
+await go(luis, '/');
 await luis.getByRole('button', { name: 'Actualizar' }).click();
 await luis.getByTestId('presence-card').getByText('Sofía Díaz').waitFor();
 ok('Luis (conjunto 1) ve a Sofía con su unidad del conjunto 1', (await luis.getByTestId('presence-card').innerText()).includes('A-102'));

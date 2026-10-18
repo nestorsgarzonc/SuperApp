@@ -8,6 +8,10 @@ import { fileURLToPath } from 'node:url';
 const OUT = fileURLToPath(new URL('./shots/', import.meta.url));
 mkdirSync(OUT, { recursive: true });
 const APP = process.env.APP_URL ?? 'http://localhost:5173';
+// La sesión de prueba vive en memoria: navegar sin recargar la página para no perderla.
+const go = async (page, path) => { await page.evaluate((p) => { history.pushState({}, '', p); dispatchEvent(new PopStateEvent('popstate')); }, path); };
+// Estas pruebas son de control-de-accesos: la campana de notificaciones (otro ms) responde vacía.
+const stubNotifications = (page) => page.route('**/api/v1/notifications/**', (r) => r.fulfill({ json: { success: true, data: { count: 0 } } }));
 let fails = 0;
 const ok = (n, c, x = '') => { if (!c) fails++; console.log(`${c ? 'PASS' : 'FAIL'}  ${n}${x ? '  → ' + x : ''}`); };
 
@@ -15,21 +19,22 @@ const browser = await chromium.launch({ channel: process.env.E2E_CHANNEL ?? 'mse
 const errors = [];
 const watch = (page, tag) => {
   page.on('pageerror', (e) => errors.push(`${tag} pageerror: ${e.message}`));
-  page.on('console', (m) => m.type() === 'error' && !/favicon|fonts\.g|ERR_INTERNET_DISCONNECTED|ERR_FAILED/.test(m.text()) && errors.push(`${tag} console: ${m.text()}`));
+  page.on('console', (m) => m.type() === 'error' && !/favicon|fonts\.g|ERR_INTERNET_DISCONNECTED|ERR_FAILED/.test(m.text() + ' ' + m.location().url) && errors.push(`${tag} console: ${m.text()}`));
 };
 const shot = (page, name) => page.screenshot({ path: path.join(OUT, name + '.png'), fullPage: false });
 
 async function login(ctx, who) {
   const page = await ctx.newPage();
+  await stubNotifications(page);
   watch(page, who);
-  await page.goto(APP);
+  await page.goto(APP + '/dev-login');
   await page.getByRole('button', { name: new RegExp(who) }).click();
   await page.waitForSelector('.shell');
   return page;
 }
 
 // ── MÓVIL: residente
-const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+const mobile = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 const res = await login(mobile, 'Ana García');
 await res.getByText('Autorizaciones activas').waitFor();
 ok('residente: inicio', await res.getByText('Hola, Ana').isVisible());
@@ -59,13 +64,13 @@ ok('pase: código del backend (64 hex)', /^[0-9a-f]{64}$/.test(code), code.slice
 ok('pase: nombre y vehículo', (await res.getByText('María López').count()) > 0 && (await res.getByText(/Placa: XYZ98/).count()) > 0);
 await shot(res, '03-pase-acceso');
 
-await res.goto(APP + '/autorizaciones');
+await go(res, '/autorizaciones');
 await res.getByText('María López').first().waitFor();
 ok('lista: aparece el pase nuevo como Activa', (await res.getByText('✓ Activa').count()) >= 1);
 await shot(res, '04-autorizaciones');
 
 // ── MÓVIL: portería
-const gctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+const gctx = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 const guard = await login(gctx, 'Luis Mora');
 await guard.getByText('Operación en tiempo real').waitFor();
 ok('portería: conectado', await guard.getByText('● Conectado').isVisible());
@@ -97,7 +102,7 @@ ok('salida registrada', true);
 // ── Sincronización al servidor
 await guard.waitForTimeout(1200);
 const logs = await guard.evaluate(async () => {
-  const s = JSON.parse(localStorage.getItem('superapp.session'));
+  const s = window.__superappSession;
   const r = await fetch('/api/v1/access-logs?limit=50', { headers: { Authorization: 'Bearer ' + s.token, 'X-Complex-ID': s.complexId } });
   return (await r.json()).data;
 });
@@ -107,7 +112,7 @@ ok('servidor: intento denegado del código inexistente', logs.some((l) => l.move
 ok('cola local vacía tras sync', (await guard.evaluate(() => JSON.parse(localStorage.getItem('superapp.accessLog.pending') || '[]').length)) === 0);
 
 // ── Offline: registrar sin red y sincronizar al volver
-await guard.goto(APP + '/porteria/movimiento');
+await go(guard, '/porteria/movimiento');
 await gctx.setOffline(true);
 await guard.waitForTimeout(300);
 await guard.getByPlaceholder('Juan Pérez').fill('Técnico Gas');
@@ -116,23 +121,28 @@ await guard.getByRole('button', { name: 'Registrar ingreso' }).click();
 await guard.getByText(/Ingreso registrado correctamente/).waitFor();
 const pend = await guard.evaluate(() => JSON.parse(localStorage.getItem('superapp.accessLog.pending') || '[]').length);
 ok('offline: registro queda en cola local', pend === 1, `pendientes=${pend}`);
-await guard.goto(APP + '/').catch(() => {});
+await go(guard, '/').catch(() => {});
 await gctx.setOffline(false);
 await guard.waitForTimeout(300);
-await guard.goto(APP + '/');
+await go(guard, '/');
 await guard.getByText('Operación en tiempo real').waitFor();
 await guard.getByRole('button', { name: 'Sincronizar ahora' }).click().catch(() => {});
 await guard.waitForTimeout(1500);
 const after = await guard.evaluate(() => JSON.parse(localStorage.getItem('superapp.accessLog.pending') || '[]').length);
 ok('online: la cola se sincroniza', after === 0, `pendientes=${after}`);
 const logs2 = await guard.evaluate(async () => {
-  const s = JSON.parse(localStorage.getItem('superapp.session'));
+  const s = window.__superappSession;
   return (await (await fetch('/api/v1/access-logs?limit=50', { headers: { Authorization: 'Bearer ' + s.token, 'X-Complex-ID': s.complexId } })).json()).data;
 });
 ok('servidor recibió el registro offline (sin duplicar)', logs2.filter((l) => l.visitor_name === 'Técnico Gas').length === 1);
 
 // ── Residente: revocar
-await res.goto(APP + '/autorizaciones');
+// Recarga real (la sesión está en memoria, así que se vuelve a entrar) para leer la lista fresca del servidor.
+await res.goto(APP + '/dev-login');
+await res.getByRole('button', { name: /Ana García/ }).click();
+await res.waitForSelector('.shell');
+await go(res, '/autorizaciones');
+await res.getByRole('heading', { name: 'Autorizaciones' }).waitFor();
 ok('residente: pase usado salió de "Activas"', (await res.getByText('María López').count()) === 0);
 await res.getByRole('tab', { name: /Historial/ }).click();
 await res.getByText('María López').first().click();
@@ -140,7 +150,7 @@ await res.getByRole('heading', { name: 'Pase de acceso' }).waitFor();
 ok('residente: pase usado ya no es revocable', (await res.getByRole('button', { name: 'Revocar' }).count()) === 0);
 
 // ── ESCRITORIO: admin
-const dctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+const dctx = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 1280, height: 800 } });
 const admin = await login(dctx, 'Carlos Rojas');
 await admin.getByText('Panel de administración').waitFor();
 ok('admin: panel con accesos hoy', await admin.getByText('Accesos hoy').isVisible());
@@ -158,12 +168,12 @@ const denied = await admin.locator('table tbody tr').count();
 ok('historial: filtro Denegado', denied >= 1 && (await admin.locator('table tbody tr .badge.green').count()) === 0, `${denied} fila(s)`);
 
 // ── RBAC en rutas
-await res.goto(APP + '/historial');
+await go(res, '/historial');
 await res.waitForTimeout(400);
-ok('residente no accede a /historial (redirige)', new URL(res.url()).pathname === '/');
-await res.goto(APP + '/porteria/validar');
+ok('residente no accede a /historial (redirige)', new URL(res.url()).pathname === '/unauthorized');
+await go(res, '/porteria/validar');
 await res.waitForTimeout(400);
-ok('residente no accede a /porteria/validar', new URL(res.url()).pathname === '/');
+ok('residente no accede a /porteria/validar', new URL(res.url()).pathname === '/unauthorized');
 
 ok('sin errores de consola/página', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();
