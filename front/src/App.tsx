@@ -12,9 +12,11 @@ import { NotificationBell } from './modules/notificaciones/components/Notificati
 import { disablePush, syncPush } from './modules/notificaciones/push';
 import { AuthComplexSwitcher, AuthSessionBridge } from './features/auth/components/AuthIntegration';
 import { DevLoginPage } from './modules/control-de-accesos/dev/DevLoginPage';
+import { ComplexSwitcher } from './modules/control-de-accesos/dev/ComplexSwitcher';
+import { DevPanel } from './modules/control-de-accesos/dev/DevPanel';
 
 function App() {
-  const { identity, activeComplex, signOut } = useAuth();
+  const { identity, activeComplex, developmentSession, signOut } = useAuth();
   const { session, logout } = useSession();
   // Antes de signOut: el unregister del push necesita la sesión vigente.
   const onLogout = async (all = false) => { try { await disablePush(); await signOut(all); } finally { logout(); } };
@@ -24,11 +26,14 @@ function App() {
   if (identity && !activeComplex) return <Routes><Route path="/select-complex" element={<SelectComplexPage />} /><Route path="/session-expired" element={<SessionExpiredPage />} /><Route path="*" element={<Navigate to="/select-complex" replace />} /></Routes>;
   if (identity && activeComplex) {
     if (!session) return <AuthSessionBridge />;
-    return <Routes>
-      <Route element={<AppShell complexSlot={<AuthComplexSwitcher />} bellSlot={<NotificationBell />} onLogout={onLogout} />}>{accessControlRoutes}{notificationRoutes}</Route>
+    return <>
+    <Routes>
+      <Route element={<AppShell complexSlot={developmentSession ? <ComplexSwitcher /> : <AuthComplexSwitcher />} bellSlot={<NotificationBell />} onLogout={onLogout} />}>{accessControlRoutes}{notificationRoutes}</Route>
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>;
+    </Routes>
+    {import.meta.env.DEV && developmentSession && <DevPanel />}
+    </>;
   }
   return <>
     <Routes>

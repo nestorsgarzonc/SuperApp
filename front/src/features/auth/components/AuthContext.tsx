@@ -6,6 +6,8 @@ import type { Membership, Role, Session } from '../../../shared/api/client';
 
 interface AuthContextValue {
   identity: AuthIdentity | null; activeComplex: Complex | null; loading: boolean;
+  /** Sesión creada desde /dev-login (sin el ms de auth). */
+  developmentSession: boolean;
   signIn: (email: string, password: string, remember: boolean) => Promise<void>;
   signInDevelopment: (session: Session) => void;
   selectComplex: (complex: Complex) => Promise<Complex>; signOut: (all?: boolean) => Promise<void>;
@@ -99,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener('superapp:access-token-refreshed', refreshed);
     return () => { window.removeEventListener('superapp:session-expired', expire); window.removeEventListener('superapp:access-token-refreshed', refreshed); };
   }, [navigate]);
-  const value = useMemo(() => ({ identity, activeComplex, loading, signIn, signInDevelopment, selectComplex, signOut }), [identity, activeComplex, loading, signIn, signInDevelopment, selectComplex, signOut]);
+  const value = useMemo(() => ({ identity, activeComplex, loading, developmentSession, signIn, signInDevelopment, selectComplex, signOut }), [identity, activeComplex, loading, developmentSession, signIn, signInDevelopment, selectComplex, signOut]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 export function useAuth(): AuthContextValue {

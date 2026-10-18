@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../shared/auth/AuthContext';
+import { useAuth as useIdentity } from '../../../features/auth/components/AuthContext';
 import type { Membership } from '../../../shared/api/client';
 import { ROLE_LABEL, loginDemo } from './devApi';
 
@@ -14,6 +15,7 @@ const keyOf = (m: Membership) => `${m.complexId}:${m.role}:${m.unitId ?? ''}`;
  */
 export function ComplexSwitcher() {
   const { session, signIn } = useAuth();
+  const { signInDevelopment } = useIdentity();
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
   if (!session) return null;
@@ -30,7 +32,9 @@ export function ComplexSwitcher() {
     if (!m || !session) return;
     setBusy(true);
     try {
-      signIn(await loginDemo(session.userId, m));
+      const next = await loginDemo(session.userId, m);
+      signIn(next);
+      signInDevelopment(next);
       nav('/', { replace: true });
     } finally {
       setBusy(false);

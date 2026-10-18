@@ -10,6 +10,10 @@ import { fileURLToPath } from 'node:url';
 const OUT = fileURLToPath(new URL('./shots/', import.meta.url));
 mkdirSync(OUT, { recursive: true });
 const APP = process.env.APP_URL ?? 'http://localhost:5173';
+// La sesión de prueba vive en memoria: navegar sin recargar la página para no perderla.
+const go = async (page, path) => { await page.evaluate((p) => { history.pushState({}, '', p); dispatchEvent(new PopStateEvent('popstate')); }, path); };
+// Estas pruebas son de control-de-accesos: la campana de notificaciones (otro ms) responde vacía.
+const stubNotifications = (page) => page.route('**/api/v1/notifications/**', (r) => r.fulfill({ json: { success: true, data: { count: 0 } } }));
 let fails = 0, total = 0;
 const ok = (n, c, x = '') => { total++; if (!c) fails++; console.log(`${c ? 'PASS' : 'FAIL'}  ${n}${x ? '  → ' + x : ''}`); };
 const section = (t) => console.log(`\n== ${t}`);
@@ -18,11 +22,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const browser = await chromium.launch({ channel: process.env.E2E_CHANNEL ?? 'msedge', headless: true });
 const errors = [];
 const open = async (name, viewport = { width: 390, height: 844 }) => {
-  const ctx = await browser.newContext({ viewport });
+  const ctx = await browser.newContext({ serviceWorkers: 'block', viewport });
   const p = await ctx.newPage();
+  await stubNotifications(p);
   p.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
-  p.on('console', (m) => m.type() === 'error' && errors.push(`${name}: ${m.text()}`));
-  await p.goto(APP);
+  p.on('console', (m) => m.type() === 'error' && !/favicon/.test(m.location().url) && errors.push(`${name}: ${m.text()}`));
+  await p.goto(APP + '/dev-login');
   await p.getByTestId('dev-login').getByRole('button', { name: new RegExp(name) }).click();
   await p.waitForSelector('.shell');
   return p;
@@ -55,7 +60,7 @@ await devAction(ana, 'Simular caída del sistema QR');
 await qrMode(ana).filter({ hasText: 'CAÍDO' }).waitFor();
 ok('el panel marca CAÍDO; el circuito sigue cerrado (aún no ha fallado nada)', (await qrState(ana).innerText()) === 'cerrado');
 
-await ana.goto(APP + '/autorizaciones/nueva');
+await go(ana, '/autorizaciones/nueva');
 await ana.getByPlaceholder('Juan Pérez').fill('Invitado con QR caído');
 const qrPill = ana.getByRole('radio', { name: 'Pase con QR' });
 ok('con el circuito cerrado el residente aún puede elegir QR', await qrPill.isEnabled());
@@ -89,7 +94,7 @@ await ana.getByRole('button', { name: 'Autorizar visitante' }).click();
 await ana.getByRole('heading', { name: 'Pase de acceso' }).waitFor();
 ok('la pre-autorización por documento SÍ se crea con el QR caído', (await ana.getByText('Documento: COL810001').count()) > 0 && Date.now() - t1 < 3000, `${Date.now() - t1} ms`);
 
-await ana.goto(APP + '/');
+await go(ana, '/');
 await notice(ana).waitFor();
 ok('el aviso también aparece en el inicio del residente', true);
 
@@ -116,7 +121,7 @@ ok('"Restablecer sistema QR" → el panel marca operativo', (await qrMode(ana).i
 // el circuito se recupera solo tras el enfriamiento (4 s): primero semiabierto, el aviso desaparece
 await notice(ana).waitFor({ state: 'detached', timeout: 15000 });
 ok('pasado el enfriamiento desaparece el aviso y se puede volver a usar QR', true);
-await ana.goto(APP + '/autorizaciones/nueva');
+await go(ana, '/autorizaciones/nueva');
 await ana.getByPlaceholder('Juan Pérez').fill('Invitado tras la recuperación');
 await ana.getByRole('radio', { name: 'Pase con QR' }).click();
 ok('la opción "Pase con QR" vuelve a estar habilitada', await ana.getByRole('radio', { name: 'Pase con QR' }).isEnabled());
@@ -126,7 +131,7 @@ await ana.locator('.pass-qr img').waitFor();
 ok('crea el QR (este intento real cierra el circuito)', (await ana.locator('.pass .code').innerText()).length > 20);
 await qrState(ana).filter({ hasText: 'cerrado' }).waitFor({ timeout: 8000 });
 ok('el circuito queda CERRADO', (await qrState(ana).innerText()) === 'cerrado');
-await luis.goto(APP + '/porteria/validar');
+await go(luis, '/porteria/validar');
 await luis.getByRole('tab', { name: /Código QR/ }).click();
 const code = (await ana.locator('.pass .code').innerText()).replace('Código:', '').trim();
 await luis.getByPlaceholder('SA-7K29-4QX1').fill(code);
