@@ -20,18 +20,19 @@ const AUTHORIZATIONS: NavItem = { to: '/autorizaciones', label: 'Accesos', icon:
 const BUILDING: NavItem = { to: '/edificio', label: 'Edificio', icon: '\u21c4', permission: 'access.building.read' };
 const HISTORY: NavItem = { to: '/historial', label: 'Historial', icon: '\u2630', permission: 'access.history.read' };
 const NOTIFICATIONS: NavItem = { to: '/notificaciones', label: 'Notificaciones', short: 'Avisos', icon: '\u2709' };
+const INTERCOM: NavItem = { to: '/citofonia', label: 'Citofonía', icon: '\u260e' };
 const NAV: Record<Role, NavItem[]> = {
-  RESIDENT: [HOME, AUTHORIZATIONS, BUILDING, NOTIFICATIONS],
-  OWNER: [HOME, AUTHORIZATIONS, BUILDING, NOTIFICATIONS],
-  GUARD: [HOME, { to: '/porteria/validar', label: 'Validar', icon: '\u25c7', permission: 'access.pass.validate' }, { to: '/porteria/movimiento', label: 'Ingreso/Salida', icon: '\u21c4', permission: 'access.movement.register' }, HISTORY, NOTIFICATIONS],
-  ADMIN: [HOME, HISTORY, NOTIFICATIONS],
+  RESIDENT: [HOME, AUTHORIZATIONS, BUILDING, INTERCOM, NOTIFICATIONS],
+  OWNER: [HOME, AUTHORIZATIONS, BUILDING, INTERCOM, NOTIFICATIONS],
+  GUARD: [HOME, { to: '/porteria/validar', label: 'Validar', icon: '\u25c7', permission: 'access.pass.validate' }, { to: '/porteria/movimiento', label: 'Ingreso/Salida', short: 'Registro', icon: '\u21c4', permission: 'access.movement.register' }, HISTORY, INTERCOM, NOTIFICATIONS],
+  ADMIN: [HOME, HISTORY, INTERCOM, NOTIFICATIONS],
 };
 
 /**
  * `complexSlot`: el chip/selector del conjunto activo (lo aporta el módulo de auth).
  * `bellSlot`: la campana de notificaciones (la aporta el módulo de notificaciones).
  */
-export function AppShell({ complexSlot, bellSlot, onLogout }: { complexSlot?: ReactNode; bellSlot?: ReactNode; onLogout?: (all?: boolean) => Promise<void> }) {
+export function AppShell({ complexSlot, bellSlot, onLogout, intercomOnly = false }: { complexSlot?: ReactNode; bellSlot?: ReactNode; onLogout?: (all?: boolean) => Promise<void>; intercomOnly?: boolean }) {
   const { profile, session } = useAuth();
   const { identity } = useIdentity();
   const nav = useNavigate();
@@ -39,7 +40,7 @@ export function AppShell({ complexSlot, bellSlot, onLogout }: { complexSlot?: Re
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [logoutAll, setLogoutAll] = useState(false);
   if (!profile) return null;
-  const items = NAV[profile.role].filter(({ permission }) => !permission || identity?.permissions.includes(permission));
+  const items = intercomOnly ? [INTERCOM] : NAV[profile.role].filter(({ permission }) => !permission || identity?.permissions.includes(permission));
 
   return (
     <div className="shell">

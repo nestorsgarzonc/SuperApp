@@ -15,27 +15,42 @@ import { DevLoginPage } from './modules/control-de-accesos/dev/DevLoginPage';
 import { DEV_LOGIN_ENABLED } from './modules/control-de-accesos/dev/devApi';
 import { ComplexSwitcher } from './modules/control-de-accesos/dev/ComplexSwitcher';
 import { DevPanel } from './modules/control-de-accesos/dev/DevPanel';
+import { IntercomProvider, useIntercom } from './modules/citofonia/IntercomContext';
+import { intercomRoutes } from './modules/citofonia/routes';
+import { isIntercomDemo } from './modules/citofonia/dev/demo';
+import { DemoLoginPage } from './modules/citofonia/dev/DemoLoginPage';
+
+function SessionShell({ onLogout }: { onLogout: (all?: boolean) => Promise<void> }) {
+  const { controller } = useIntercom();
+  const { developmentSession } = useAuth();
+  const demo = isIntercomDemo();
+  return <AppShell intercomOnly={demo} complexSlot={developmentSession && !demo ? <ComplexSwitcher /> : <AuthComplexSwitcher />} bellSlot={demo ? undefined : <NotificationBell />} onLogout={async (all) => {
+    controller?.stop();
+    await onLogout(all);
+  }} />;
+}
 
 function App() {
   const { identity, activeComplex, developmentSession, signOut } = useAuth();
   const { session, logout } = useSession();
   // Antes de signOut: el unregister del push necesita la sesión vigente.
-  const onLogout = async (all = false) => { try { await disablePush(); await signOut(all); } finally { logout(); } };
+  const demo = isIntercomDemo();
+  const onLogout = async (all = false) => { try { if (!demo) await disablePush(); await signOut(all); } finally { logout(); } };
   const userId = session?.userId;
-  useEffect(() => { if (userId) void syncPush(); }, [userId]);
+  useEffect(() => { if (userId && !demo) void syncPush(); }, [userId, demo]);
   if (identity && identity.complexes.length === 0) return <UnauthorizedPage />;
   if (identity && !activeComplex) return <Routes><Route path="/select-complex" element={<SelectComplexPage />} /><Route path="/session-expired" element={<SessionExpiredPage />} /><Route path="*" element={<Navigate to="/select-complex" replace />} /></Routes>;
   if (identity && activeComplex) {
     if (!session) return <AuthSessionBridge />;
-    return <>
-    <Routes>
-      <Route element={<AppShell complexSlot={developmentSession ? <ComplexSwitcher /> : <AuthComplexSwitcher />} bellSlot={<NotificationBell />} onLogout={onLogout} />}>{accessControlRoutes}{notificationRoutes}</Route>
+    return <IntercomProvider><Routes>
+      <Route element={<SessionShell onLogout={onLogout} />}>{!demo && accessControlRoutes}{!demo && notificationRoutes}{intercomRoutes}</Route>
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<Navigate to={demo ? '/citofonia' : '/'} replace />} />
     </Routes>
-    {import.meta.env.DEV && developmentSession && <DevPanel />}
-    </>;
+    {import.meta.env.DEV && developmentSession && !demo && <DevPanel />}
+    </IntercomProvider>;
   }
+  if (demo) return <DemoLoginPage />;
   return <>
     <Routes>
       <Route path="/" element={<Navigate to="/splash" replace />} />
