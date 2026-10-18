@@ -15,7 +15,7 @@ const OUT = fileURLToPath(new URL('./shots/', import.meta.url));
 mkdirSync(OUT, { recursive: true });
 const SITE = (process.env.REMOTE_URL ?? 'https://nestorsgarzonc.github.io/SuperApp').replace(/\/$/, '');
 const API = (process.env.REMOTE_API ?? 'https://7fn1lwfutc.execute-api.us-east-2.amazonaws.com/dev/api/v1').replace(/\/$/, '');
-const BASE = new URL(SITE).pathname; // '/SuperApp'
+const BASE = new URL(SITE).pathname.replace(/\/$/, ''); // '/SuperApp', o '' si el sitio está en la raíz
 const RUN = Date.now().toString(36).slice(-5).toUpperCase();
 // Nombres cortos: sirven tanto para "Los Pinos" (directorio demo del front) como para "Conjunto Residencial Los Pinos".
 const C1 = 'Los Pinos', C2 = 'Alto del Bosque';
@@ -165,9 +165,21 @@ await step('portería valida', async () => {
   await luis.getByRole('button', { name: 'Validar pase' }).click();
   await luis.getByText('✕ Pase no válido').waitFor();
   ok('código inexistente → rechazado', true);
+  const unread = async (p) => (await api(p, '/notifications/users/me/notifications/unread-count')).data?.count ?? -1;
+  const [anaBefore, luisBefore] = [await unread(ana), await unread(luis)];
   await luis.getByPlaceholder('SA-7K29-4QX1').fill(code);
   await luis.getByRole('button', { name: 'Validar pase' }).click();
   await luis.getByText('✓ Pase válido').waitFor();
+  // control-de-accesos avisa a la unidad (menos a quien actuó): Ana recibe "Visitante en portería".
+  let got;
+  for (let i = 0; i < 15 && !got; i++) {
+    await luis.waitForTimeout(1000);
+    got = ((await api(ana, '/notifications/users/me/notifications?limit=10')).data ?? []).find((n) => n.body?.includes(visitor));
+  }
+  ok('notificación: Ana recibe "Visitante en portería" al validar su pase', !!got, got ? `${got.title} | ${got.body}` : 'no llegó en 15 s');
+  ok('notificación: el contador de no leídas de Ana sube', (await unread(ana)) > anaBefore, `${anaBefore} → ${await unread(ana)}`);
+  ok('notificación: textos sin caracteres dañados', !!got && !/Ã|â€/.test(got.title + got.body));
+  ok('notificación: Luis (quien validó) no se notifica a sí mismo', (await unread(luis)) === luisBefore);
   ok('el código real → válido, con el nombre del visitante', (await luis.getByText(visitor).count()) > 0);
   await luis.getByRole('button', { name: 'Registrar ingreso' }).click();
   await luis.getByRole('heading', { name: /Registrar ingreso/ }).waitFor();

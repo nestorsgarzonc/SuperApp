@@ -56,7 +56,7 @@ type QRSystem interface {
 	Availability() qrsystem.Public
 }
 
-// UnitMembershipChecker verifies a caller is associated with a unit â€” the
+// UnitMembershipChecker verifies a caller is associated with a unit — the
 // IDOR guard for every grant-write/read/cancel operation below.
 type UnitMembershipChecker interface {
 	IsUserAssociatedWithUnit(ctx context.Context, userID, unitID uuid.UUID) (bool, error)
@@ -144,7 +144,7 @@ const (
 
 // notify tells the residents of the grant's unit what happened. The actor (who
 // caused it, if a resident) is left out: they already know. It runs in the
-// background â€” recipient lookup included â€” so it never delays or fails the
+// background — recipient lookup included — so it never delays or fails the
 // request.
 func (s *service) notify(ctx context.Context, event string, grant *AccessGrant, actor *uuid.UUID) {
 	if s.notifier == nil || grant == nil {
@@ -181,12 +181,12 @@ func (s *service) notify(ctx context.Context, event string, grant *AccessGrant, 
 		category, title, body := notifier.CategoryAccess, "", ""
 		switch event {
 		case eventGrantCreated:
-			title, body = "Acceso autorizado", fmt.Sprintf("Se autorizÃ³ el ingreso de %s a %s", visitor, unit)
+			title, body = "Acceso autorizado", fmt.Sprintf("Se autorizó el ingreso de %s a %s", visitor, unit)
 		case eventGrantCancelled:
-			title, body = "Acceso cancelado", fmt.Sprintf("Se cancelÃ³ la autorizaciÃ³n de %s para %s", visitor, unit)
+			title, body = "Acceso cancelado", fmt.Sprintf("Se canceló la autorización de %s para %s", visitor, unit)
 		case eventGrantValidated:
 			category = notifier.CategoryVisitor
-			title, body = "Visitante en porterÃ­a", fmt.Sprintf("%s ingresÃ³ a %s", visitor, unit)
+			title, body = "Visitante en portería", fmt.Sprintf("%s ingresó a %s", visitor, unit)
 		default:
 			return
 		}
@@ -209,7 +209,7 @@ func (s *service) notify(ctx context.Context, event string, grant *AccessGrant, 
 }
 
 // audit writes a best-effort append-only trail entry. A nil auditor (e.g.
-// unit tests) or a write failure never affects the caller â€” it's only
+// unit tests) or a write failure never affects the caller — it's only
 // logged.
 func (s *service) audit(ctx context.Context, actorID, complexID *uuid.UUID, resourceType string, resourceID *uuid.UUID, action, result, reason string) {
 	if s.auditor == nil {
@@ -421,7 +421,7 @@ func (s *service) GetPreAuthorizations(ctx context.Context, complexID, userID uu
 }
 
 // IDOR guard #1: the body's unit_id must belong to the caller's complex.
-// IDOR guard #2: the caller must be associated with that unit â€” complex scope
+// IDOR guard #2: the caller must be associated with that unit — complex scope
 // alone is not enough, since any complex member could otherwise mint a grant
 // into a neighbor's unit.
 func (s *service) CreateAccessGrant(ctx context.Context, complexID uuid.UUID, createdBy uuid.UUID, req CreateAccessGrantRequest) (*AccessGrant, error) {
@@ -604,7 +604,7 @@ func (s *service) ValidateAccess(ctx context.Context, req ValidateAccessRequest)
 	}
 
 	// Consumption is the server's decision, not the client's: every grant is
-	// single-use, consumed atomically on its first successful validation â€”
+	// single-use, consumed atomically on its first successful validation —
 	// so a QR/PRE_AUTH scanned twice is accepted exactly once.
 	if grant.SingleUse {
 		var usedBy uuid.UUID

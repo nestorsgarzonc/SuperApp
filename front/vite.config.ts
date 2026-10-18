@@ -11,6 +11,12 @@ export default defineConfig(({ mode }) => {
     apiProxy['/api'] = { target: env.GATEWAY_URL, changeOrigin: true };
   } else {
     apiProxy['/api/v1/auth'] = { target: env.AUTH_URL || 'http://localhost:8081', changeOrigin: true };
+    // Igual que el gateway: /api/v1/notifications/{proxy+} → ms de notificaciones /{proxy} (sin prefijo).
+    apiProxy['/api/v1/notifications'] = {
+      target: env.NOTIFICATIONS_URL || 'http://localhost:8083',
+      changeOrigin: true,
+      rewrite: (p) => p.replace(/^\/api\/v1\/notifications/, ''),
+    };
     apiProxy['/api'] = { target: env.ACCESS_URL || 'http://localhost:8081', changeOrigin: true };
   }
   return {
