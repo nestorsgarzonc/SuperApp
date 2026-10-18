@@ -12,6 +12,7 @@ import { NotificationBell } from './modules/notificaciones/components/Notificati
 import { disablePush, syncPush } from './modules/notificaciones/push';
 import { AuthComplexSwitcher, AuthSessionBridge } from './features/auth/components/AuthIntegration';
 import { DevLoginPage } from './modules/control-de-accesos/dev/DevLoginPage';
+import { DEV_LOGIN_ENABLED } from './modules/control-de-accesos/dev/devApi';
 import { ComplexSwitcher } from './modules/control-de-accesos/dev/ComplexSwitcher';
 import { DevPanel } from './modules/control-de-accesos/dev/DevPanel';
 
@@ -45,7 +46,7 @@ function App() {
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/reset-password/success" element={<ResetSuccessPage />} />
       <Route path="/session-expired" element={<SessionExpiredPage />} />
-      {import.meta.env.DEV && <Route path="/dev-login" element={<DevLoginPage />} />}
+      {DEV_LOGIN_ENABLED && <Route path="/dev-login" element={<DevLoginPage />} />}
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
       <Route path="/account-blocked" element={<BlockedPage />} />
       <Route element={<ProtectedRoute />}>

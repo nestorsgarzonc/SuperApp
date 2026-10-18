@@ -16,6 +16,9 @@ interface DevMembership {
   unit_name?: string;
 }
 
+// /dev-login disponible en `npm run dev` o en un build con VITE_ENABLE_DEV_LOGIN=true (p. ej. el S3 de pruebas).
+export const DEV_LOGIN_ENABLED = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEV_LOGIN === 'true';
+
 export interface DevUser {
   userId: string;
   name: string;

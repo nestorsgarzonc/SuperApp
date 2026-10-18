@@ -4,7 +4,7 @@ import { useAuth } from '../../../shared/auth/AuthContext';
 import { useAuth as useIdentity } from '../../../features/auth/components/AuthContext';
 import type { Session } from '../../../shared/api/client';
 import { ErrorBox } from '../../../shared/ui';
-import { listDevUsers, loginDemo, membershipLabel, type DevUser } from './devApi';
+import { DEV_LOGIN_ENABLED, listDevUsers, loginDemo, membershipLabel, type DevUser } from './devApi';
 
 /**
  * Entrada de PRUEBAS de control-de-accesos (ver devApi.ts). No es el login de
@@ -23,7 +23,7 @@ export function DevLoginPage() {
   const [choosing, setChoosing] = useState<DevUser | null>(null);
 
   useEffect(() => {
-    if (!import.meta.env.DEV) return;
+    if (!DEV_LOGIN_ENABLED) return;
     listDevUsers()
       .then(setUsers)
       .catch((e: Error) => setLoadError(e.message));
@@ -43,7 +43,7 @@ export function DevLoginPage() {
     }
   }
 
-  if (!import.meta.env.DEV) {
+  if (!DEV_LOGIN_ENABLED) {
     return (
       <div className="login">
         <div className="login-inner">
