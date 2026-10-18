@@ -267,6 +267,60 @@ await step('admin', async () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+await step('admin: portería y presencia', async () => {
+  await go(carlos, '/');
+  await carlos.getByText('Panel de administración').waitFor();
+  ok('el panel del admin muestra quién está dentro del edificio', (await carlos.getByTestId('presence-card').count()) === 1);
+  const nav = await carlos.locator('.sidebar').innerText();
+  ok('menú del admin: Inicio, Historial, Citofonía y Notificaciones', ['Inicio', 'Historial', 'Citofonía', 'Notificaciones'].every((x) => nav.includes(x)), nav.replace(/\s+/g, ' '));
+  await go(carlos, '/porteria/validar');
+  await carlos.getByPlaceholder('SA-7K29-4QX1').fill('codigo-admin-' + RUN);
+  await carlos.getByRole('button', { name: 'Validar pase' }).click();
+  await carlos.getByText('✕ Pase no válido').waitFor();
+  ok('el admin también puede validar pases en portería (código falso → no válido)', true);
+  for (const p of ['/autorizaciones', '/autorizaciones/nueva', '/edificio']) {
+    await go(carlos, p);
+    await carlos.waitForTimeout(500);
+    ok(`el admin no entra a ${p} (pantalla de residente)`, here(carlos) === '/unauthorized', here(carlos));
+  }
+  const n = await api(carlos, '/notifications/users/me/notifications/unread-count');
+  ok('notificaciones responde con la sesión del admin', n.status === 200, String(n.status));
+});
+
+section('Aislamiento entre conjuntos (admin c1 vs guardia c2)');
+const c2visitor = `E2E C2 ${RUN}`;
+await step('aislamiento', async () => {
+  await go(marta, '/porteria/movimiento');
+  await marta.getByPlaceholder('Juan Pérez').fill(c2visitor);
+  await marta.getByPlaceholder('Torre 3, Apto 502').fill('B-202');
+  await marta.getByRole('button', { name: 'Registrar ingreso' }).click();
+  await marta.getByText(/Ingreso registrado correctamente/).waitFor();
+  ok('Marta (guardia c2) registra un ingreso en su conjunto', (await drainQueue(marta)) === 0);
+  const m = (await api(marta, '/access-logs?limit=100')).data ?? [];
+  ok('el ingreso quedó en el conjunto 2', m.some((l) => l.visitor_name === c2visitor && l.complex_id?.endsWith('0002')));
+  const c = (await api(carlos, '/access-logs?limit=200')).data ?? [];
+  ok('el admin de c1 NO lo ve por API', !c.some((l) => l.visitor_name === c2visitor));
+  await go(carlos, '/historial');
+  await carlos.getByRole('heading', { name: 'Historial de accesos' }).waitFor();
+  await carlos.locator('select[aria-label=Fecha]').selectOption('all').catch(() => {});
+  await carlos.locator('table tbody tr').first().waitFor();
+  ok('ni en su historial', !(await carlos.locator('table tbody').innerText()).includes(c2visitor));
+});
+
+section('Pedro (residente c2)');
+await step('pedro', async () => {
+  const pedro = await login('pedro');
+  ok('Pedro entra a su inicio de residente', (await pedro.getByText('Hola, Pedro').count()) === 1);
+  ok('en Alto del Bosque', (await pedro.locator('.shell').innerText()).includes(C2));
+  await go(pedro, '/autorizaciones');
+  await pedro.getByRole('heading', { name: 'Autorizaciones' }).waitFor();
+  await pedro.waitForTimeout(1000);
+  ok('no ve los pases de Ana (conjunto 1)', (await pedro.getByText(visitor).count()) === 0);
+  await go(pedro, '/historial');
+  await pedro.waitForTimeout(500);
+  ok('no entra al historial', here(pedro) === '/unauthorized', here(pedro));
+});
+
 section('Permisos por rol');
 await step('rbac', async () => {
   for (const p of ['/historial', '/porteria/validar']) {
