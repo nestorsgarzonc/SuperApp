@@ -1,7 +1,8 @@
 // E2E completo contra el front PUBLICADO (GitHub Pages) + API Gateway real, con login real
 // de las personas demo (auth: db/dev-seeds/001_demo.sql, mismos UUID que control-de-accesos).
-// La contraseña NO está en el repo: se pasa por variable de entorno.
-//   E2E_PASSWORD='…' E2E_CHANNEL=chrome node e2e/remote.e2e.mjs
+// Dos modos de entrada:
+//   - login real (auth): E2E_PASSWORD='…' E2E_CHANNEL=chrome node e2e/remote.e2e.mjs
+//   - sin E2E_PASSWORD: /dev-login del sitio publicado (VITE_ENABLE_DEV_LOGIN=true en la demo).
 // Crea datos en el entorno remoto (pases, movimientos, registros); cada corrida usa nombres únicos.
 import { chromium } from 'playwright-core';
 import path from 'node:path';
@@ -9,7 +10,7 @@ import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const PASSWORD = process.env.E2E_PASSWORD;
-if (!PASSWORD) { console.error('Falta E2E_PASSWORD (contraseña de las personas demo).'); process.exit(2); }
+const MODE = PASSWORD ? 'login real (auth)' : '/dev-login';
 const OUT = fileURLToPath(new URL('./shots/', import.meta.url));
 mkdirSync(OUT, { recursive: true });
 const SITE = (process.env.REMOTE_URL ?? 'https://nestorsgarzonc.github.io/SuperApp').replace(/\/$/, '');
@@ -25,6 +26,7 @@ const pickComplex = async (page, name) => {
   await sel.selectOption({ label });
 };
 const activeComplex = (page) => page.locator('select.chip-select option:checked').innerText();
+const NAME = { ana: 'Ana García', pedro: 'Pedro Gómez', luis: 'Luis Mora', marta: 'Marta Ruiz', carlos: 'Carlos Rojas', sofia: 'Sofía', andres: 'Andrés' };
 const EMAIL = {
   ana: 'ana.garcia@demo.test', pedro: 'pedro.gomez@demo.test', luis: 'luis.mora@demo.test', marta: 'marta.ruiz@demo.test',
   carlos: 'carlos.rojas@demo.test', sofia: 'sofia.diaz@demo.test', andres: 'andres.vega@demo.test',
@@ -48,7 +50,8 @@ async function login(who, { complex, viewport = { width: 390, height: 844 }, ctx
   ctx ??= await browser.newContext({ serviceWorkers: 'block', viewport });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(`${who}: ${e.message}`));
-  page.on('console', (m) => m.type() === 'error' && errors.push(`${who}: ${m.text()}`));
+  // GitHub Pages sirve las rutas profundas con 404.html (status 404) y no tiene /favicon.ico: no son errores de la app.
+  page.on('console', (m) => m.type() === 'error' && !(m.location().url.startsWith(new URL(SITE).origin) && /status of 404/.test(m.text())) && errors.push(`${who}: ${m.text()}`));
   page.on('request', (r) => {
     const h = r.headers();
     if (r.url().startsWith(API) && h.authorization?.startsWith('Bearer ') && h['x-complex-id']) creds.set(page, { token: h.authorization.slice(7), complexId: h['x-complex-id'] });
@@ -57,6 +60,7 @@ async function login(who, { complex, viewport = { width: 390, height: 844 }, ctx
   return page;
 }
 async function enter(page, who, complex) {
+  if (!PASSWORD) return enterDev(page, who, complex);
   await page.goto(SITE + '/login');
   await page.getByLabel('Correo electrónico').fill(EMAIL[who]);
   await page.getByLabel('Contraseña', { exact: true }).fill(PASSWORD);
@@ -71,6 +75,17 @@ async function enter(page, who, complex) {
   }
   await page.waitForSelector('.shell', { timeout: 20000 });
 }
+async function enterDev(page, who, complex) {
+  await page.goto(SITE + '/dev-login');
+  await page.getByTestId('dev-login').getByRole('button', { name: new RegExp(NAME[who]) }).click();
+  const pick = page.getByRole('heading', { name: 'Selecciona tu conjunto' });
+  await Promise.race([pick.waitFor({ timeout: 20000 }), page.waitForSelector('.shell', { timeout: 20000 })]);
+  if (await pick.count()) {
+    if (!complex) throw new Error(`${who} tiene varios conjuntos: falta indicar cuál`);
+    await page.locator('.profile-card', { hasText: complex }).first().click();
+  }
+  await page.waitForSelector('.shell', { timeout: 20000 });
+}
 // Llamada directa al ms con la sesión que la app está usando (verificación del lado servidor).
 async function api(page, p) {
   const c = creds.get(page);
@@ -80,9 +95,17 @@ async function api(page, p) {
 }
 const shot = (page, name) => page.screenshot({ path: path.join(OUT, name + '.png') });
 const pending = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('superapp.accessLog.pending') || '[]').length);
+// Contra el entorno remoto la sincronización tarda más: se espera a que la cola se vacíe (máx. 20 s).
+async function drainQueue(page) {
+  for (let i = 0; i < 20 && (await pending(page)) > 0; i++) {
+    await page.getByRole('button', { name: 'Sincronizar ahora' }).click({ timeout: 500 }).catch(() => {});
+    await page.waitForTimeout(1000);
+  }
+  return pending(page);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
-section('Login real con las personas demo');
+section(`Entrada de las personas demo (${MODE})`);
 let ana, luis, carlos, marta;
 await step('Ana inicia sesión', async () => {
   ana = await login('ana');
@@ -95,7 +118,7 @@ await step('Luis inicia sesión', async () => {
   await luis.getByText('Operación en tiempo real').waitFor();
   ok('Luis (guardia c1) ve portería y "● Conectado"', await luis.getByText('● Conectado').isVisible());
 });
-await step('login inválido', async () => {
+if (PASSWORD) await step('login inválido', async () => {
   const p = await (await browser.newContext({ serviceWorkers: 'block' })).newPage();
   await p.goto(SITE + '/login');
   await p.getByLabel('Correo electrónico').fill(EMAIL.ana);
@@ -154,11 +177,10 @@ await step('portería valida', async () => {
   await luis.getByRole('button', { name: 'Registrar salida' }).click();
   await luis.getByText(/Salida registrado correctamente/).waitFor();
   await shot(luis, '52-remoto-ingreso-salida');
-  await luis.waitForTimeout(2000);
+  ok('cola local vacía tras sincronizar', (await drainQueue(luis)) === 0);
   const logs = (await api(luis, '/access-logs?limit=100')).data ?? [];
   const mine = logs.filter((l) => l.visitor_name === visitor);
   ok('servidor: ENTRY y EXIT del visitante', mine.some((l) => l.movement === 'ENTRY') && mine.some((l) => l.movement === 'EXIT'), `${mine.length} registros`);
-  ok('cola local vacía tras sincronizar', (await pending(luis)) === 0);
 });
 await step('pase usado', async () => {
   await enter(ana, 'ana'); // recarga real: lista fresca del servidor
@@ -174,18 +196,17 @@ const offline = `E2E Offline ${RUN}`;
 await step('offline', async () => {
   await go(luis, '/porteria/movimiento');
   await luis.getByPlaceholder('Juan Pérez').waitFor();
+  const before = await drainQueue(luis);
   await luis.context().setOffline(true);
   await luis.getByPlaceholder('Juan Pérez').fill(offline);
   await luis.getByPlaceholder('Torre 3, Apto 502').fill('A-101');
   await luis.getByRole('button', { name: 'Registrar ingreso' }).click();
   await luis.getByText(/Ingreso registrado correctamente/).waitFor();
-  ok('sin red: el registro queda en cola local', (await pending(luis)) === 1);
+  ok('sin red: el registro queda en cola local', (await pending(luis)) === before + 1, `pendientes=${await pending(luis)}`);
   await luis.context().setOffline(false);
   await go(luis, '/');
   await luis.getByText('Operación en tiempo real').waitFor();
-  await luis.getByRole('button', { name: 'Sincronizar ahora' }).click().catch(() => {});
-  await luis.waitForTimeout(3000);
-  ok('con red: la cola se sincroniza', (await pending(luis)) === 0);
+  ok('con red: la cola se sincroniza', (await drainQueue(luis)) === 0);
   const logs = (await api(luis, '/access-logs?limit=100')).data ?? [];
   ok('el servidor lo recibió una sola vez', logs.filter((l) => l.visitor_name === offline).length === 1);
 });

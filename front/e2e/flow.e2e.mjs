@@ -81,7 +81,8 @@ await guard.getByPlaceholder('SA-7K29-4QX1').fill('codigo-que-no-existe');
 await guard.getByRole('button', { name: 'Validar pase' }).click();
 await guard.getByText('✕ Pase no válido').waitFor();
 ok('validar: código inexistente → rechazado', true);
-ok('validar: SIN citofonía', (await guard.getByText(/itofon|Llamar residente/i).count()) === 0);
+// La pantalla de validación no llama al residente (la citofonía es otro módulo, con su propio ítem en la navegación).
+ok('validar: SIN citofonía', (await guard.locator('main.content').getByText(/itofon|Llamar residente/i).count()) === 0);
 await shot(guard, '06-validar-rechazado');
 
 await guard.getByPlaceholder('SA-7K29-4QX1').fill(code);

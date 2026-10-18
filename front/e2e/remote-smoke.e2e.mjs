@@ -79,7 +79,7 @@ const authed = { headers: { Authorization: 'Bearer token-invalido', 'X-Complex-I
 const checks = [
   ['auth: /auth/refresh sin cookie → 400/401', '/auth/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' } }, [400, 401]],
   ['control-de-accesos: /access-logs con token inválido → 401', '/access-logs', authed, [401]],
-  ['notificaciones: /notifications/unread-count con token inválido → 401', '/notifications/unread-count', authed, [401]],
+  ['notificaciones: /notifications/users/me/notifications/unread-count con token inválido → 401', '/notifications/users/me/notifications/unread-count', authed, [401]],
 ];
 for (const [name, p, init, want] of checks) {
   const r = await call(p, init);

@@ -188,11 +188,19 @@ export function addLogEntry(e: Omit<AccessLogEntry, 'id' | 'at' | 'synced'>): Ac
 }
 
 let running = false;
+// Pedido de sync que llegó mientras otro estaba en curso (p. ej. la salida registrada antes de
+// que termine de enviarse el ingreso): se atiende al terminar, en vez de perderse.
+let rerun = false;
 export async function syncPending(): Promise<void> {
+  if (running) {
+    rerun = true;
+    return;
+  }
   // Siempre contra la sesión de ahora (no un derivado viejo): nunca enviar con el token de otro conjunto.
   const mineNow = state.queue.filter(mine);
-  if (running || !mineNow.length) return;
+  if (!mineNow.length) return;
   running = true;
+  rerun = false;
   set({ syncing: true });
   try {
     // De la más antigua a la más nueva, para conservar el orden de llegada.
@@ -214,6 +222,7 @@ export async function syncPending(): Promise<void> {
     running = false;
     set({ syncing: false });
   }
+  if (rerun) await syncPending();
 }
 
 if (typeof window !== 'undefined') {
