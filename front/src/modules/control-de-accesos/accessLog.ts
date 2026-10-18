@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { api, ApiError, getSession } from '../../shared/api/client';
+import { uuid } from '../../shared/uuid';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Bitácora de ingresos/salidas/intentos (POST/GET /access-logs).
@@ -176,7 +177,7 @@ export function addLogEntry(e: Omit<AccessLogEntry, 'id' | 'at' | 'synced'>): Ac
   const session = getSession();
   const entry: AccessLogEntry = {
     ...e,
-    id: crypto.randomUUID(),
+    id: uuid(),
     at: new Date().toISOString(),
     synced: false,
     complexId: session?.complexId,

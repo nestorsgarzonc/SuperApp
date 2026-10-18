@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useAsync } from '../../../shared/useAsync';
 import { ApiError } from '../../../shared/api/client';
 import { fmtDay, fmtTime } from '../../../shared/format';
+import { uuid } from '../../../shared/uuid';
 import { Badge, ErrorBox, Loading, PageHead } from '../../../shared/ui';
 import { residentApi, type BuildingStatus } from '../api';
 import { MOVEMENT_LABEL } from '../accessLog';
@@ -25,7 +26,7 @@ export function BuildingPage() {
     setBusy(true);
     setNotice(null);
     setActionError(null);
-    if (pendingId.current?.movement !== movement) pendingId.current = { movement, id: crypto.randomUUID() };
+    if (pendingId.current?.movement !== movement) pendingId.current = { movement, id: uuid() };
     try {
       const entry = await residentApi.move(movement, pendingId.current.id);
       pendingId.current = null;
