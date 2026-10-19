@@ -331,7 +331,7 @@ export function AccessPassPage() {
     <>
       <PageHead
         title="Pase de acceso"
-        subtitle={isPreAuth ? 'El visitante se identifica con su documento en portería' : 'El código es válido por 12 horas desde su generación'}
+        subtitle={isPreAuth ? 'El visitante se identifica con su documento en portería' : 'El QR sirve una sola vez y es válido en el horario indicado'}
       />
       <div className="card pass">
         <div className="pass-qr">
