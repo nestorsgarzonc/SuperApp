@@ -85,8 +85,7 @@ La cédula `COL555555` tiene una pre-autorización en *cada* conjunto, a propós
 - **Todo grant es de un solo uso**: se marca `USED` atómicamente en la primera
   validación exitosa. Validar el mismo QR/PRE_AUTH una segunda vez devuelve
   `valid:false` ("Access grant has already been used").
-- **QR tiene tope de 12h desde su creación**, sin importar qué `valid_until`
-  pida el residente (gana lo que ocurra primero). `PRE_AUTH` no tiene este tope.
+- **QR y `PRE_AUTH` valen exactamente la ventana `valid_from`–`valid_until`** que define el residente (sin tope de duración).
 - **Fechas**: `valid_until` no puede estar en el pasado, y si se envía
   `valid_from`, debe ser anterior a `valid_until`. Si no, `422`.
 - **Longitudes máximas**: `visitor_name` 200, `visitor_id_number` 50,
@@ -282,8 +281,8 @@ En el security group de RDS hay que permitir el 5432 desde el EC2; el ALB/proxy 
 
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
-| POST | `/api/v1/access/qr-codes` | autenticado + dueño de la unidad | Crear QR (tope 12h) |
-| POST | `/api/v1/access/qr-codes/batch` | autenticado + dueño de la unidad | Crear varios QR (tope 12h c/u). **Atómico**: todos o ninguno |
+| POST | `/api/v1/access/qr-codes` | autenticado + dueño de la unidad | Crear QR |
+| POST | `/api/v1/access/qr-codes/batch` | autenticado + dueño de la unidad | Crear varios QR. **Atómico**: todos o ninguno |
 | GET | `/api/v1/access/qr-codes` | autenticado | Mis QR: **solo los de las unidades a las que pertenezco** (el código es una credencial) |
 | POST | `/api/v1/access/pre-auth` | autenticado + dueño de la unidad | Crear pre-autorización |
 | GET | `/api/v1/access/pre-auth` | autenticado | Mis pre-autorizaciones (solo de mis unidades) |

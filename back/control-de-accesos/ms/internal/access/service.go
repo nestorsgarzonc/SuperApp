@@ -19,11 +19,6 @@ import (
 	"controldeaccesos/internal/qrsystem"
 )
 
-// qrMaxValidity caps how long a freshly generated QR can stay valid,
-// regardless of what the creator requested (FR-05-B). PRE_AUTH grants are
-// not subject to this cap.
-const qrMaxValidity = 12 * time.Hour
-
 const (
 	ActionCreateGrant   = "CREATE_ACCESS_GRANT"
 	ActionCancelGrant   = "CANCEL_ACCESS_GRANT"
@@ -259,16 +254,6 @@ func (s *service) checkUnitOwnership(ctx context.Context, action string, actorID
 	return nil
 }
 
-// clampQRExpiry enforces qrMaxValidity: whichever of the creator's requested
-// expiry or the 12h cap comes first wins.
-func clampQRExpiry(validUntil time.Time) time.Time {
-	cap := time.Now().Add(qrMaxValidity)
-	if validUntil.After(cap) {
-		return cap
-	}
-	return validUntil
-}
-
 func (s *service) CreateQRCode(ctx context.Context, complexID uuid.UUID, createdBy uuid.UUID, req CreateQRCodeRequest) (*AccessGrantResponse, error) {
 	if err := s.checkUnitOwnership(ctx, ActionCreateGrant, createdBy, complexID, req.UnitID); err != nil {
 		return nil, err
@@ -288,7 +273,7 @@ func (s *service) CreateQRCode(ctx context.Context, complexID uuid.UUID, created
 		VisitorType: VisitorTypeVisitor,
 		VisitorName: visitorName,
 		ValidFrom:   req.ValidFrom,
-		ValidUntil:  clampQRExpiry(req.ValidUntil),
+		ValidUntil:  req.ValidUntil,
 		qrCode:      code,
 	}
 	grant, err := s.repo.CreateAccessGrant(ctx, complexID, createReq, createdBy)
@@ -348,7 +333,6 @@ func (s *service) CreateQRBatch(ctx context.Context, complexID uuid.UUID, create
 	if err := s.checkUnitOwnership(ctx, ActionCreateGrant, createdBy, complexID, req.UnitID); err != nil {
 		return nil, err
 	}
-	clampedValidUntil := clampQRExpiry(req.ValidUntil)
 
 	// 1) Obtain every code first: if the QR system fails midway nothing has been
 	//    written yet. 2) Insert them all in ONE transaction: all or none.
@@ -364,7 +348,7 @@ func (s *service) CreateQRBatch(ctx context.Context, complexID uuid.UUID, create
 			Method:      MethodQR,
 			VisitorType: VisitorTypeVisitor,
 			ValidFrom:   &req.ValidFrom,
-			ValidUntil:  clampedValidUntil,
+			ValidUntil:  req.ValidUntil,
 			qrCode:      code,
 		})
 	}
@@ -429,7 +413,6 @@ func (s *service) CreateAccessGrant(ctx context.Context, complexID uuid.UUID, cr
 		return nil, err
 	}
 	if req.Method == MethodQR {
-		req.ValidUntil = clampQRExpiry(req.ValidUntil)
 		code, err := s.issueQR(ctx)
 		if err != nil {
 			s.audit(ctx, &createdBy, &complexID, "access_grant", nil, ActionCreateGrant, audit.ResultDenied, "qr system unavailable")
