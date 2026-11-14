@@ -61,6 +61,10 @@ func (r *Repository) RotateRefresh(ctx context.Context, params coreRepository.Ro
 		if err = tx.Commit(); err != nil {
 			return coreRepository.RotateRefreshResult{}, err
 		}
+		if consumed.Valid || revoked.Valid {
+			// Refresh token reuse: the session is treated as stolen.
+			r.publishRevoked(ctx, []string{sid})
+		}
 		return coreRepository.RotateRefreshResult{}, domain.ErrInvalidToken
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE auth_refresh_tokens SET consumed_at=$2 WHERE id=$1`, oldID, params.Now)
@@ -91,7 +95,7 @@ func (r *Repository) RevokeRefresh(ctx context.Context, hash string) error {
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `UPDATE auth_sessions s SET revoked_at=COALESCE(s.revoked_at,now()) FROM auth_refresh_tokens t WHERE t.session_id=s.id AND t.token_hash=decode($1,'hex')`, hash)
+	sids, err := queryIDs(ctx, tx, `UPDATE auth_sessions s SET revoked_at=COALESCE(s.revoked_at,now()) FROM auth_refresh_tokens t WHERE t.session_id=s.id AND t.token_hash=decode($1,'hex') RETURNING s.id`, hash)
 	if err != nil {
 		return err
 	}
@@ -99,7 +103,11 @@ func (r *Repository) RevokeRefresh(ctx context.Context, hash string) error {
 	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	r.publishRevoked(ctx, sids)
+	return nil
 }
 
 func (r *Repository) RevokeAllSessions(ctx context.Context, uid string) error {
@@ -108,15 +116,27 @@ func (r *Repository) RevokeAllSessions(ctx context.Context, uid string) error {
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1`, uid)
+	sids, err := revokeUserSessions(ctx, tx, uid)
 	if err != nil {
 		return err
+	}
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	r.publishRevoked(ctx, sids)
+	return nil
+}
+
+// revokeUserSessions revokes every session (and refresh token) of a user and
+// returns the sessions that were still active. Already revoked sessions keep
+// their original revoked_at.
+func revokeUserSessions(ctx context.Context, tx *sql.Tx, uid string) ([]string, error) {
+	sids, err := queryIDs(ctx, tx, `UPDATE auth_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL RETURNING id`, uid)
+	if err != nil {
+		return nil, err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE auth_refresh_tokens t SET revoked_at=COALESCE(t.revoked_at,now()) FROM auth_sessions s WHERE t.session_id=s.id AND s.user_id=$1`, uid)
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
+	return sids, err
 }
 
 func (r *Repository) RevokeSession(ctx context.Context, params coreRepository.RevokeSessionParams) error {
@@ -136,7 +156,11 @@ func (r *Repository) RevokeSession(ctx context.Context, params coreRepository.Re
 	if _, err = tx.ExecContext(ctx, `UPDATE auth_refresh_tokens SET revoked_at=COALESCE(revoked_at,now()) WHERE session_id=$1`, params.SessionID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	r.publishRevoked(ctx, []string{params.SessionID})
+	return nil
 }
 
 func (r *Repository) Sessions(ctx context.Context, uid string) ([]domain.Session, error) {

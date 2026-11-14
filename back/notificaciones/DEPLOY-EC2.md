@@ -115,6 +115,7 @@ nano .env.prod
 | `DATABASE_URL` | `postgres://notificaciones:<clave-nueva>@<endpoint-rds>:5432/<db-name>?sslmode=require&search_path=notificaciones` |
 | `GATEWAY_SECRET` | generado |
 | `INTERNAL_SECRET` | generado; **el mismo** en control-de-accesos |
+| `JWT_SECRET` y/o `AUTH_JWKS_URL` + `AUTH_JWT_ISSUER` | para validar los Bearer que llegan por AWS API Gateway (sin ellos → `401`) |
 
 Si la clave tiene `@ : / ? # &` o espacios, va URL-encoded en `DATABASE_URL`.
 
@@ -195,5 +196,6 @@ ssh -i ~/.ssh/<key>.pem ec2-user@<ip-publica> 'cd ~/notificaciones && \
 | `function uuidv7() does not exist` | la RDS es PostgreSQL < 18 |
 | `exec format error` | la imagen se construyó para otra arquitectura (`PLATFORM`) |
 | `INTERNAL_SECRET is required` / `GATEWAY_SECRET is required` | falta en `.env.prod` |
+| `401 Token verification is not configured` | falta `JWT_SECRET` o `AUTH_JWKS_URL` (ver paso 6) |
 | `failed to initialize firebase app` | ruta de `FIREBASE_CREDENTIALS_FILE` mal escrita o el JSON sin permiso 644 |
 | Push en estado `PUSH_FAILED` | `FIREBASE_PROJECT_ID` no es el del JSON, o la API *Firebase Cloud Messaging* está apagada en Google Cloud |

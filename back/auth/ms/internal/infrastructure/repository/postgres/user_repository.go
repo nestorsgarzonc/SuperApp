@@ -55,15 +55,17 @@ func (r *Repository) UpdateUser(ctx context.Context, params coreRepository.Updat
 	if n == 0 {
 		return domain.ErrNotFound
 	}
+	var sids []string
 	if params.Status != nil && *params.Status != "ACTIVE" {
-		if _, err = tx.ExecContext(ctx, `UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1`, params.ID); err != nil {
-			return err
-		}
-		if _, err = tx.ExecContext(ctx, `UPDATE auth_refresh_tokens t SET revoked_at=COALESCE(t.revoked_at,now()) FROM auth_sessions s WHERE t.session_id=s.id AND s.user_id=$1`, params.ID); err != nil {
+		if sids, err = revokeUserSessions(ctx, tx, params.ID); err != nil {
 			return err
 		}
 	}
-	return tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	r.publishRevoked(ctx, sids)
+	return nil
 }
 
 func (r *Repository) SetLastLogin(ctx context.Context, id string) error {

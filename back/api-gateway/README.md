@@ -13,6 +13,7 @@ internal/gateway/     tabla de rutas, pipeline de la petición, CORS
 internal/authn/       verificación RS256 (JWKS) y HS256 de desarrollo
 internal/membership/  rol por conjunto (control-de-accesos /internal), con caché
 internal/ratelimit/   ventana fija en Redis o en memoria
+internal/revocation/  sesiones cerradas en auth (auth:revoked:sid:<sid>)
 internal/apierr/      errores con el sobre {success,error:{code,message}}
 ```
 
@@ -36,7 +37,8 @@ go test -race ./...
 
 Cubren las pruebas de aceptación de `docs/api-gateway.md` contra servicios
 falsos (`httptest`): suplantación de headers, rol real, conjunto ajeno, tokens
-inválidos, `/internal` y path traversal, fail-closed, rate limit, CORS, body.
+inválidos, sesiones revocadas, `/internal` y path traversal, fail-closed,
+rate limit, CORS, body. De punta a punta: `scripts/smoke.sh` en la raíz.
 
 ## Configuración
 
@@ -52,7 +54,7 @@ inválidos, `/internal` y path traversal, fail-closed, rate limit, CORS, body.
 | `CONTROL_ACCESOS_URL` / `CONTROL_ACCESOS_SECRET` | sí | destino y `GATEWAY_SECRET` de control-de-accesos |
 | `NOTIFICACIONES_URL` / `NOTIFICACIONES_SECRET` | sí | destino y `GATEWAY_SECRET` de notificaciones |
 | `INTERNAL_SECRET` | sí | `INTERNAL_SECRET` de control-de-accesos (consulta de rol) |
-| `REDIS_URL` | | `redis://redis:6379/0`. Vacío = límites por instancia |
+| `REDIS_URL` | | `redis://redis:6379/0`: rate limit compartido y sesiones revocadas por auth. Vacío = límites por instancia y sin revocación inmediata |
 | `CORS_ALLOWED_ORIGINS` | | lista separada por comas. `*` solo en desarrollo |
 | `TRUST_FORWARDED_FOR` | | `true` detrás de nginx/ALB (IP = última entrada de `X-Forwarded-For`) |
 | `RATE_LIMIT_PUBLIC_PER_MIN` / `RATE_LIMIT_USER_PER_MIN` | | `10` / `300` |

@@ -55,6 +55,11 @@ type Verifier interface {
 	Verify(ctx context.Context, raw string) (authn.Identity, error)
 }
 
+// RevocationChecker reports whether auth revoked a session.
+type RevocationChecker interface {
+	Revoked(ctx context.Context, sessionID string) (bool, error)
+}
+
 // RoleResolver returns the role a user holds in a complex.
 type RoleResolver interface {
 	Role(ctx context.Context, userID, complexID string) (role string, member bool, err error)
@@ -65,6 +70,7 @@ type Gateway struct {
 	routes   []Route
 	verifier Verifier
 	roles    RoleResolver
+	revoked  RevocationChecker // nil = revocation not checked
 	limiter  ratelimit.Limiter
 	log      *slog.Logger
 	proxies  map[string]*httputil.ReverseProxy
@@ -72,9 +78,9 @@ type Gateway struct {
 	now      func() time.Time
 }
 
-func New(cfg config.Config, verifier Verifier, roles RoleResolver, limiter ratelimit.Limiter, log *slog.Logger) *Gateway {
+func New(cfg config.Config, verifier Verifier, roles RoleResolver, revoked RevocationChecker, limiter ratelimit.Limiter, log *slog.Logger) *Gateway {
 	g := &Gateway{
-		cfg: cfg, routes: BuildRoutes(cfg), verifier: verifier, roles: roles, limiter: limiter, log: log,
+		cfg: cfg, routes: BuildRoutes(cfg), verifier: verifier, roles: roles, revoked: revoked, limiter: limiter, log: log,
 		proxies: map[string]*httputil.ReverseProxy{}, cors: newCORS(cfg.CORSAllowedOrigins), now: time.Now,
 	}
 	transport := &http.Transport{
@@ -246,6 +252,18 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request, reqID string) (r
 	if err != nil {
 		apierr.Write(w, apierr.Unauthenticated)
 		return route.Name, ""
+	}
+	if g.revoked != nil && id.SessionID != "" {
+		revoked, err := g.revoked.Revoked(ctx, id.SessionID)
+		switch {
+		case err != nil:
+			// Fail open: without the check a token is valid until it expires
+			// (at most the access TTL), which is the behaviour without Redis.
+			g.log.Warn("revocation check unavailable, allowing token", "error", err, "request_id", reqID)
+		case revoked:
+			apierr.Write(w, apierr.Unauthenticated)
+			return route.Name, id.UserID
+		}
 	}
 	if !g.allow(w, r, "user:"+id.UserID, g.cfg.UserRatePerMin) {
 		return route.Name, id.UserID

@@ -17,6 +17,7 @@ de aquí es una regla de seguridad. Configuración y pruebas:
    inyecta los suyos.
 5. **Enrutamiento** por prefijo (tabla explícita: lo que no está, es `404`).
 6. **Protección.** Rate limiting (Redis), límite de body, timeouts, CORS.
+   Rechaza al instante los tokens de sesiones cerradas (logout) en auth.
 7. **Bloqueo de rutas internas.** Nunca reenvía `/internal/*`, tampoco a través
    del prefijo de notificaciones ni con trucos de codificación (`%2e%2e`, `%2f`).
 
@@ -32,7 +33,7 @@ sequenceDiagram
   App->>GW: GET /api/v1/notifications/users/me/notifications<br/>Authorization: Bearer <jwt> · X-Complex-ID
   GW->>GW: 1. borra X-User-ID, X-Complex-Role, X-Gateway-*, X-Internal-*, X-Tenant-ID, X-Forwarded-*
   GW->>GW: 2. ruta + path seguro (si no → 404)
-  GW->>GW: 3. valida JWT con el JWKS en caché (si no → 401) · rate limit (429)
+  GW->>GW: 3. valida JWT con el JWKS en caché · sesión revocada en Redis (→ 401) · rate limit (429)
   GW->>CA: 4. GET /internal/users/{u}/complexes/{c}/role (caché 60 s)
   CA-->>GW: { role } · 404 → 403 · error → 503
   GW->>MS: 5. GET /users/me/notifications<br/>X-Gateway-Secret · X-User-ID · X-Complex-ID · X-Complex-Role · X-Request-ID
@@ -85,7 +86,12 @@ con `X-Gateway-Timestamp = unixSeconds` (ventana ±60 s). El `tenantId` es el
 - **RS256** emitidos por auth: firma con el JWKS (`GET http://auth:8081/.well-known/jwks.json`,
   caché 10 min, refresco ante `kid` desconocido limitado a 1 cada 30 s),
   `iss` = `AUTH_JWT_ISSUER`, `aud` = `AUTH_JWT_AUDIENCE`, `exp` obligatorio,
-  `sub` UUID. Solo se usa `sub`: el rol nunca sale del token.
+  `sub` UUID y `sid` (sesión) obligatorios. El rol nunca sale del token.
+- **Revocación:** auth escribe `auth:revoked:sid:<sid>` en Redis (TTL = vida del
+  access token + 1 min) al hacer logout, logout-all, revocar una sesión,
+  detectar reutilización de un refresh token o desactivar la cuenta. El gateway
+  rechaza esos tokens con `401`. Si Redis no responde, el token se acepta y se
+  registra el fallo: se degrada a "válido hasta `exp`" (15 min), nunca peor.
 - **HS256** de `/dev/token` (dev login): solo con `ENV=development` y
   `DEV_HS256_SECRET`. Se toma `user_id`; los claims `role`/`complex_id` se
   ignoran y el rol se resuelve igual que con RS256.
@@ -111,7 +117,7 @@ Las respuestas de los `ms` se devuelven sin modificar (salvo los headers CORS).
 
 | Caso | HTTP | code |
 |---|---|---|
-| Sin token / token inválido o expirado | 401 | `AUTH_001` |
+| Sin token / token inválido, expirado o de una sesión cerrada | 401 | `AUTH_001` |
 | No pertenece al conjunto | 403 | `PERM_003` |
 | Ruta desconocida, `/internal/*` o path inseguro | 404 | `RES_001` |
 | Body demasiado grande | 413 | `SYS_003` |
@@ -127,19 +133,24 @@ Automatizadas en `back/api-gateway/internal/gateway/gateway_test.go`:
 - [x] `X-User-ID` falso con token válido → el `ms` recibe el del token.
 - [x] `X-Complex-Role: ADMIN` de un residente → el `ms` recibe `RESIDENT`.
 - [x] Conjunto ajeno → `403`, el `ms` no recibe nada.
-- [x] Token expirado, falsificado, de otro `iss` o `alg: none` → `401`.
+- [x] Token expirado, falsificado, de otro `iss`, sin `sid` o `alg: none` → `401`.
+- [x] Token de una sesión cerrada (logout, logout-all) → `401` antes de su `exp`.
 - [x] `/internal/*` (también `/api/v1/notifications/internal/...` y variantes codificadas) → `404`.
 - [x] control-de-accesos caído → `503`, nunca se reenvía sin rol.
 - [x] Superar el límite por usuario → `429` con `Retry-After`.
-- [ ] Llamada directa al `ms` sin `X-Gateway-Secret` → `401`: depende de cada `ms`
-      (ver limitaciones).
+- [x] Llamada directa al `ms` sin `X-Gateway-Secret` → `401` (control-de-accesos y
+      notificaciones; `scripts/smoke.sh` lo prueba desde la red privada).
+
+De punta a punta, contra el stack de `docker-compose.yml`: `scripts/smoke.sh`
+(también en CI, `.github/workflows/ci.yml`).
 
 ## Limitaciones conocidas
 
-- **Revocación inmediata:** auth no publica los `jti` revocados, así que un
-  access token sigue siendo válido hasta su `exp` (15 min) tras un logout.
-- **notificaciones sin gateway:** si recibe un Bearer sin `X-Gateway-Secret`,
-  toma el `sub` **sin validar la firma** (modo AWS API Gateway). Debe quedar
-  solo en la red privada; en `docker-compose.yml` no se publica su puerto.
+- **Revocación sin Redis:** si Redis cae, un token de una sesión cerrada vale
+  hasta su `exp` (15 min). Es un fallo abierto deliberado: lo contrario dejaría
+  sin servicio a todos los usuarios.
 - **`TRUST_FORWARDED_FOR`:** solo activarlo si todo el tráfico llega por un
   proxy propio (nginx/ALB); si no, el cliente elige su IP para el rate limit.
+- **notificaciones sin gateway** (AWS API Gateway): valida el Bearer con
+  `AUTH_JWKS_URL` y/o `JWT_SECRET`; sin ellos responde `401`
+  (`ALLOW_UNVERIFIED_BEARER` existe solo para desarrollo local).

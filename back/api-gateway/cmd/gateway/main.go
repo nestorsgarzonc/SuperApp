@@ -19,6 +19,7 @@ import (
 	"superapp/api-gateway/internal/gateway"
 	"superapp/api-gateway/internal/membership"
 	"superapp/api-gateway/internal/ratelimit"
+	"superapp/api-gateway/internal/revocation"
 )
 
 func main() {
@@ -50,6 +51,7 @@ func run(logger *slog.Logger) error {
 	go warmJWKS(ctx, verifier, logger)
 
 	var limiter ratelimit.Limiter = ratelimit.NewMemory()
+	var revoked gateway.RevocationChecker
 	if cfg.RedisURL != "" {
 		opts, err := redis.ParseURL(cfg.RedisURL)
 		if err != nil {
@@ -58,12 +60,13 @@ func run(logger *slog.Logger) error {
 		rdb := redis.NewClient(opts)
 		defer rdb.Close()
 		limiter = ratelimit.NewRedis(rdb)
+		revoked = revocation.NewRedis(rdb)
 	} else {
-		logger.Warn("REDIS_URL not set: rate limits are per gateway instance")
+		logger.Warn("REDIS_URL not set: rate limits are per instance and revoked tokens stay valid until they expire")
 	}
 
 	roles := membership.NewResolver(cfg.ControlDeAccesos.URL, cfg.InternalSecret, cfg.RoleCacheTTL, nil)
-	gw := gateway.New(cfg, verifier, roles, limiter, logger)
+	gw := gateway.New(cfg, verifier, roles, revoked, limiter, logger)
 
 	if cfg.IsDevelopment() {
 		logger.Warn("ENV=development", "dev_hs256_tokens", cfg.DevHS256Secret != "", "dev_routes", cfg.ExposeDevRoutes)

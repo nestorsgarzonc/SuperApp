@@ -37,13 +37,22 @@ navegador ─► front (nginx :3000) ─/api─► api-gateway (:8080) ─┬─
 | Servicio | Qué hace |
 |---|---|
 | `postgres` | un servidor, una base y un rol por `ms` |
-| `redis` | rate limiting del gateway |
+| `redis` | rate limiting del gateway y sesiones revocadas (logout inmediato) |
 | `auth-init`, `control-de-accesos-migrate`, `notificaciones-migrate` | tareas de una vez: llave RS256, migraciones y datos demo (idempotentes) |
 | `auth`, `control-de-accesos`, `notificaciones` | microservicios, solo en la red interna |
 | `api-gateway` | único punto de entrada a la API |
 | `front` | build de producción de Vite servido por nginx, que reenvía `/api` al gateway |
 
 Solo `front`, `api-gateway` y `postgres` publican puertos, y solo en `127.0.0.1`.
+
+### Verificarlo
+
+```sh
+scripts/smoke.sh   # 30+ comprobaciones de punta a punta contra el stack (curl + jq)
+```
+
+CI (`.github/workflows/ci.yml`) corre los tests de cada servicio y del front, y
+levanta este mismo stack con `docker compose up --build` para pasar el smoke test.
 
 ### Comandos útiles
 

@@ -6,6 +6,8 @@ export const permissionsForRole: Record<DemoRole, string[]> = {
   ADMIN: ['access.home.read', 'access.authorizations.read', 'access.authorizations.create', 'access.building.read', 'access.pass.validate', 'access.visitor.register', 'access.movement.register', 'access.history.read'],
 };
 
+// Solo datos de prueba (fixtures de tests). El login real lee las membresías
+// de GET /api/v1/me/memberships (control-de-accesos).
 const C1 = { id: '00000000-0000-0000-0000-000000000001', name: 'Los Pinos' };
 const C2 = { id: '00000000-0000-0000-0000-000000000002', name: 'Alto del Bosque' };
 

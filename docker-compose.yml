@@ -117,6 +117,8 @@ services:
       JWT_ISSUER: *jwt-issuer
       JWT_AUDIENCE: *jwt-audience
       GATEWAY_TENANT_HMAC_SECRET: *tenant-hmac-secret
+      # Revoked sessions → auth:revoked:sid:<sid>; the gateway rejects their tokens at once.
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - auth_keys:/keys:ro
     healthcheck:
@@ -126,6 +128,7 @@ services:
       retries: 20
     depends_on:
       auth-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
 
   control-de-accesos:
     build:
@@ -158,6 +161,13 @@ services:
       DATABASE_URL: postgres://notificaciones:${NOTIFICACIONES_DB_PASSWORD:-notif-local-pass}@postgres:5432/notificaciones?sslmode=disable
       GATEWAY_SECRET: *notif-gateway-secret
       INTERNAL_SECRET: *internal-secret
+      # Bearer tokens that bypass the gateway are verified, never just decoded
+      # (same as production): auth RS256 via JWKS, dev-login HS256 via JWT_SECRET.
+      AUTH_JWKS_URL: http://auth:8081/.well-known/jwks.json
+      AUTH_JWT_ISSUER: *jwt-issuer
+      AUTH_JWT_AUDIENCE: *jwt-audience
+      JWT_SECRET: *dev-jwt-secret
+      ALLOW_UNVERIFIED_BEARER: "false"
       # Push (FCM) is off without credentials: notifications land in the inbox only.
     depends_on:
       notificaciones-migrate: { condition: service_completed_successfully }

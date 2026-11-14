@@ -25,6 +25,12 @@ export const handlers = [
       ],
     }, tokens: { access_token: 'mock-access-token', refresh_token: 'mock-refresh-token', expires_in: 900 } });
   }),
+  http.get(`${base}/me/memberships`, () => HttpResponse.json({ success: true, data: {
+    user_id: 'demo-resident', name: 'Camila Ramírez', memberships: [
+      { complex_id: 'parques-del-rio', complex_name: 'Parques del Río', role: 'RESIDENT', unit_id: 'parques-del-rio-apt-302', unit_name: 'Apto 302' },
+      { complex_id: 'torres-de-san-jose', complex_name: 'Torres de San José', role: 'ADMIN' },
+    ],
+  } })),
   http.post(`${base}/auth/refresh`, () => HttpResponse.json({ access_token: 'mock-refreshed-access-token', expires_in: 900 })),
   http.post(`${base}/auth/select-complex`, async ({ request }) => {
     const body = await request.json() as { complex_id?: string };

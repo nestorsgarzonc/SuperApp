@@ -9,8 +9,10 @@ import (
 
 type config struct {
 	addr, databaseURL, jwtPrivateKeyFile, jwtIssuer, jwtAuthAudience string
-	accessTTL, refreshTTL                                            time.Duration
-	gatewayTenantSecret                                              []byte
+	// redisURL enables publishing revoked sessions for the api-gateway.
+	redisURL              string
+	accessTTL, refreshTTL time.Duration
+	gatewayTenantSecret   []byte
 }
 
 func loadConfig() (config, error) {
@@ -23,6 +25,7 @@ func loadConfig() (config, error) {
 		accessTTL:           15 * time.Minute,
 		refreshTTL:          30 * 24 * time.Hour,
 		gatewayTenantSecret: []byte(os.Getenv("GATEWAY_TENANT_HMAC_SECRET")),
+		redisURL:            os.Getenv("REDIS_URL"),
 	}
 	if c.databaseURL == "" {
 		return c, errors.New("AUTH_DATABASE_URL is required")

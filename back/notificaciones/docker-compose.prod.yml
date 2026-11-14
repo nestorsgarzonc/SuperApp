@@ -22,6 +22,11 @@ services:
       FIREBASE_CREDENTIALS_FILE: ${FIREBASE_CREDENTIALS_FILE:-}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
       WEB_APP_URL: ${WEB_APP_URL:-}
+      AUTH_JWKS_URL: ${AUTH_JWKS_URL:-}
+      AUTH_JWT_ISSUER: ${AUTH_JWT_ISSUER:-}
+      AUTH_JWT_AUDIENCE: ${AUTH_JWT_AUDIENCE:-superapp-api}
+      JWT_SECRET: ${JWT_SECRET:-}
+      ALLOW_UNVERIFIED_BEARER: ${ALLOW_UNVERIFIED_BEARER:-false}
     volumes:
       # Credencial de FCM (opcional): ./secrets/firebase.json → /secrets/firebase.json
       - ./secrets:/secrets:ro

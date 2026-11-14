@@ -1,10 +1,12 @@
 package gateway
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"math/big"
@@ -77,6 +79,19 @@ type env struct {
 	ca     *upstream
 	notif  *upstream
 	caDown atomic.Bool
+	revoke *fakeRevocations
+}
+
+type fakeRevocations struct {
+	mu      sync.Mutex
+	revoked map[string]bool
+	err     error
+}
+
+func (f *fakeRevocations) Revoked(_ context.Context, sid string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.revoked[sid], f.err
 }
 
 func setup(t *testing.T, mutate ...func(*config.Config)) *env {
@@ -85,7 +100,7 @@ func setup(t *testing.T, mutate ...func(*config.Config)) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &env{t: t, key: key, auth: newUpstream(t), ca: newUpstream(t), notif: newUpstream(t)}
+	e := &env{t: t, key: key, auth: newUpstream(t), ca: newUpstream(t), notif: newUpstream(t), revoke: &fakeRevocations{revoked: map[string]bool{}}}
 
 	jwks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{{
@@ -140,7 +155,7 @@ func setup(t *testing.T, mutate ...func(*config.Config)) *env {
 	// The real resolver, pointed at the fake internal endpoint. The cache is
 	// disabled (1ns TTL) so "control-de-accesos down" is observable at once.
 	roles := membership.NewResolver(mustURL(internal.URL), "internal", time.Nanosecond, nil)
-	e.gw = New(cfg, verifier, roles, ratelimit.NewMemory(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	e.gw = New(cfg, verifier, roles, e.revoke, ratelimit.NewMemory(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	e.srv = httptest.NewServer(e.gw)
 	t.Cleanup(e.srv.Close)
 	return e
@@ -154,11 +169,17 @@ func mustURL(raw string) *url.URL {
 	return u
 }
 
-func (e *env) token(sub string, exp time.Time) string {
-	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
-		"iss": issuer, "aud": []string{audience}, "sub": sub, "sid": "s1",
+func (e *env) token(sub string, exp time.Time) string { return e.tokenWithSID(sub, "s1", exp) }
+
+func (e *env) tokenWithSID(sub, sid string, exp time.Time) string {
+	claims := jwt.MapClaims{
+		"iss": issuer, "aud": []string{audience}, "sub": sub,
 		"iat": time.Now().Unix(), "exp": exp.Unix(),
-	})
+	}
+	if sid != "" {
+		claims["sid"] = sid
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	tok.Header["kid"] = kid
 	raw, err := tok.SignedString(e.key)
 	if err != nil {
@@ -468,5 +489,29 @@ func TestRequestIDPropagates(t *testing.T) {
 	resp = e.do("GET", "/healthz", with(map[string]string{}, "X-Request-ID", "bad id with spaces"), "")
 	if id := resp.Header.Get("X-Request-ID"); id == "" || id == "bad id with spaces" {
 		t.Fatalf("invalid request id kept: %q", id)
+	}
+}
+
+// A session revoked by auth (logout) is rejected before its token expires.
+func TestRevokedSessionIs401(t *testing.T) {
+	e := setup(t)
+	live := e.tokenWithSID(resident, "live", time.Now().Add(time.Hour))
+	gone := e.tokenWithSID(resident, "gone", time.Now().Add(time.Hour))
+	e.revoke.revoked["gone"] = true
+
+	if resp := e.do("GET", "/api/v1/me/memberships", bearer(live), ""); resp.StatusCode != 200 {
+		t.Fatalf("live session: %d", resp.StatusCode)
+	}
+	resp := e.do("GET", "/api/v1/me/memberships", bearer(gone), "")
+	if resp.StatusCode != 401 || errorCode(t, resp) != "AUTH_001" {
+		t.Fatalf("revoked session: %d", resp.StatusCode)
+	}
+	if resp := e.do("GET", "/api/v1/me/memberships", bearer(e.tokenWithSID(resident, "", time.Now().Add(time.Hour))), ""); resp.StatusCode != 401 {
+		t.Fatalf("token without sid accepted: %d", resp.StatusCode)
+	}
+	// Redis down: degrade to "valid until exp" instead of locking everyone out.
+	e.revoke.err = errors.New("redis down")
+	if resp := e.do("GET", "/api/v1/me/memberships", bearer(live), ""); resp.StatusCode != 200 {
+		t.Fatalf("revocation outage should fail open: %d", resp.StatusCode)
 	}
 }

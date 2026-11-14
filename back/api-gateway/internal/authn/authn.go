@@ -36,6 +36,9 @@ var ErrInvalidToken = errors.New("invalid token")
 // Identity is what the gateway learns from a valid token.
 type Identity struct {
 	UserID string
+	// SessionID is the auth session ("sid" claim) of an RS256 token; it is
+	// what auth marks as revoked on logout.
+	SessionID string
 	// DevToken marks an HS256 token from the dev tooling.
 	DevToken bool
 }
@@ -106,8 +109,13 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Identity, error) {
 	}
 }
 
+type authClaims struct {
+	SessionID string `json:"sid"`
+	jwt.RegisteredClaims
+}
+
 func (v *Verifier) verifyRS256(ctx context.Context, raw string) (Identity, error) {
-	claims := &jwt.RegisteredClaims{}
+	claims := &authClaims{}
 	_, err := v.rs.ParseWithClaims(raw, claims, func(t *jwt.Token) (any, error) {
 		kid, _ := t.Header["kid"].(string)
 		if kid == "" {
@@ -119,10 +127,11 @@ func (v *Verifier) verifyRS256(ctx context.Context, raw string) (Identity, error
 		return Identity{}, ErrInvalidToken
 	}
 	id, err := uuid.Parse(claims.Subject)
-	if err != nil {
+	// auth always issues sid; a token without it could never be revoked.
+	if err != nil || claims.SessionID == "" {
 		return Identity{}, ErrInvalidToken
 	}
-	return Identity{UserID: id.String()}, nil
+	return Identity{UserID: id.String(), SessionID: claims.SessionID}, nil
 }
 
 type devClaims struct {
