@@ -50,6 +50,10 @@ flowchart TB
   INF -.-> back
 ```
 
+El diagrama refleja lo implementado. Los diagramas de diseño por dominio
+(arquitectura objetivo) están en [`architecture/target/`](architecture/target/) y
+el [README](../README.md#arquitectura-objetivo) dice qué parte ya existe.
+
 ## Estructura de carpetas
 
 ```
