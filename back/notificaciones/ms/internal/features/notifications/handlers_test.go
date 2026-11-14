@@ -40,7 +40,7 @@ func (f *fakeService) MarkAsRead(_ context.Context, _, complexID, userID uuid.UU
 
 func newRouter(svc Service) http.Handler {
 	r := chi.NewRouter()
-	r.Use(gatewayauth.Middleware(""))
+	r.Use(gatewayauth.Middleware("", gatewayauth.Unverified{}))
 	RegisterRoutes(r, NewHandler(svc, slog.New(slog.DiscardHandler)))
 	return r
 }

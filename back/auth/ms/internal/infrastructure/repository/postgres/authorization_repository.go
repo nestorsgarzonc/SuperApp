@@ -35,7 +35,7 @@ func (r *Repository) AssignRole(ctx context.Context, params repository.AssignRol
 	if err != nil {
 		return err
 	}
-	res, err := r.db.ExecContext(ctx, `INSERT INTO auth_user_roles(id,user_id,role_id,tenant_id,assigned_by) SELECT $1,$2,r.id,$3,NULLIF($4,'') FROM auth_roles r WHERE r.id=$5 AND r.enabled AND ((r.scope='SYSTEM' AND r.tenant_id IS NULL AND $3::uuid IS NULL) OR (r.scope='TENANT' AND r.tenant_id=$3)) ON CONFLICT DO NOTHING`, id, params.UserID, params.TenantID, params.ActorID, params.RoleID)
+	res, err := r.db.ExecContext(ctx, `INSERT INTO auth_user_roles(id,user_id,role_id,tenant_id,assigned_by) SELECT $1,$2,r.id,$3,NULLIF($4,'')::uuid FROM auth_roles r WHERE r.id=$5 AND r.enabled AND ((r.scope='SYSTEM' AND r.tenant_id IS NULL AND $3::uuid IS NULL) OR (r.scope='TENANT' AND r.tenant_id=$3)) ON CONFLICT DO NOTHING`, id, params.UserID, params.TenantID, params.ActorID, params.RoleID)
 	if err != nil {
 		return err
 	}

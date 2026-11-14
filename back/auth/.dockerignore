@@ -1,0 +1,4 @@
+.secrets
+.cache
+ms/keys
+**/.env

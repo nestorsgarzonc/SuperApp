@@ -24,12 +24,14 @@ import (
 	"superapp/auth/internal/core/usecases/users"
 	database "superapp/auth/internal/infrastructure/persistence/postgres"
 	pgadapter "superapp/auth/internal/infrastructure/repository/postgres"
+	"superapp/auth/internal/infrastructure/revocation"
 	"superapp/auth/internal/infrastructure/security/jwt"
 	"superapp/auth/internal/infrastructure/security/password"
 	"superapp/auth/internal/presentation/cors"
 	httpshared "superapp/auth/internal/presentation/shared"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -47,6 +49,18 @@ func main() {
 		log.Fatal(err)
 	}
 	repo := pgadapter.New(db)
+	if cfg.redisURL != "" {
+		opts, err := redis.ParseURL(cfg.redisURL)
+		if err != nil {
+			log.Fatal(fmt.Errorf("REDIS_URL: %w", err))
+		}
+		rdb := redis.NewClient(opts)
+		defer rdb.Close()
+		repo = repo.WithRevocationSink(revocation.NewRedis(rdb, cfg.accessTTL))
+		log.Printf("Publishing revoked sessions to Redis")
+	} else {
+		log.Printf("REDIS_URL not set: revoked access tokens stay valid until they expire")
+	}
 	services := httpshared.Services{
 		Login:    login.New(repo, repo, password.Passwords{}, tokens, uuid.NewString, contracts.Config{AccessTTL: cfg.accessTTL, RefreshTTL: cfg.refreshTTL}),
 		Register: register.New(repo, password.Passwords{}, uuid.NewString),

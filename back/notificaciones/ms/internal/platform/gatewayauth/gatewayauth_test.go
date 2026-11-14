@@ -16,6 +16,10 @@ var (
 	complexID = uuid.NewString()
 )
 
+// bearer is what serve passes to Middleware (legacy unverified decoding by
+// default, which the older tests exercise).
+var bearer BearerAuth = Unverified{}
+
 func serve(secret string, headers map[string]string, extra ...func(http.Handler) http.Handler) (int, *Identity) {
 	var seen *Identity
 	var h http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -26,7 +30,7 @@ func serve(secret string, headers map[string]string, extra ...func(http.Handler)
 	for i := len(extra) - 1; i >= 0; i-- {
 		h = extra[i](h)
 	}
-	h = Middleware(secret)(h)
+	h = Middleware(secret, bearer)(h)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	for k, v := range headers {
@@ -109,4 +113,15 @@ func TestMiddleware_BearerSubject(t *testing.T) {
 func TestMiddleware_GatewaySecretWinsOverBearer(t *testing.T) {
 	code, _ := serve("s3cret", map[string]string{HeaderSecret: "nope", "Authorization": token(`{"sub":"` + userID + `"}`)})
 	assert.Equal(t, http.StatusUnauthorized, code)
+}
+
+func TestMiddleware_BearerRejectedWithoutVerifier(t *testing.T) {
+	bearer = nil
+	t.Cleanup(func() { bearer = Unverified{} })
+	code, id := serve("s3cret", map[string]string{"Authorization": token(`{"sub":"` + userID + `"}`)})
+	assert.Equal(t, http.StatusUnauthorized, code)
+	assert.Nil(t, id)
+	// The gateway path is unaffected.
+	code, _ = serve("s3cret", map[string]string{HeaderSecret: "s3cret", HeaderUserID: userID})
+	assert.Equal(t, http.StatusOK, code)
 }

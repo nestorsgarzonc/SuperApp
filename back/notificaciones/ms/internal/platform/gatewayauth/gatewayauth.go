@@ -28,15 +28,21 @@ type Identity struct {
 	ComplexID *uuid.UUID
 }
 
+// BearerAuth resuelve el usuario de un Bearer token cuando la petición NO
+// viene del api-gateway (sin X-Gateway-Secret), p. ej. detrás de AWS API
+// Gateway, que no inyecta identidad.
+type BearerAuth interface {
+	Subject(ctx context.Context, token string) (uuid.UUID, error)
+}
+
 // Middleware carga la identidad. Con X-Gateway-Secret se confían los headers
-// que inyecta un gateway propio. Sin él (API Gateway de AWS, que no los
-// inyecta) el usuario sale del `sub` del Bearer token, decodificado SIN validar
-// la firma: cualquiera que forje un token se hace pasar por otro usuario.
-// Con secret vacío (desarrollo) también se acepta X-User-ID suelto.
-func Middleware(secret string) func(http.Handler) http.Handler {
+// que inyecta el gateway propio. Sin él, el Bearer se valida con bearer
+// (firma, emisor, expiración); con bearer nil se rechaza. Con secret vacío
+// (desarrollo) también se acepta X-User-ID suelto.
+func Middleware(secret string, bearer BearerAuth) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			userID, err := identify(r, secret)
+			userID, err := identify(r, secret, bearer)
 			if err != nil {
 				apperr.RespondError(w, nil, err)
 				return
@@ -56,9 +62,9 @@ func Middleware(secret string) func(http.Handler) http.Handler {
 	}
 }
 
-func identify(r *http.Request, secret string) (uuid.UUID, error) {
+func identify(r *http.Request, secret string, bearer BearerAuth) (uuid.UUID, error) {
 	provided := r.Header.Get(HeaderSecret)
-	bearer, hasBearer := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	token, hasBearer := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	switch {
 	case provided != "":
 		if secret != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(secret)) != 1 {
@@ -66,8 +72,11 @@ func identify(r *http.Request, secret string) (uuid.UUID, error) {
 		}
 		return headerUser(r)
 	case hasBearer:
-		userID, ok := tokenSubject(strings.TrimSpace(bearer))
-		if !ok {
+		if bearer == nil {
+			return uuid.Nil, apperr.Auth("Token verification is not configured")
+		}
+		userID, err := bearer.Subject(r.Context(), strings.TrimSpace(token))
+		if err != nil {
 			return uuid.Nil, apperr.Auth("Invalid token")
 		}
 		return userID, nil
@@ -78,6 +87,20 @@ func identify(r *http.Request, secret string) (uuid.UUID, error) {
 	}
 }
 
+// Unverified lee `sub` (tokens de auth) o `user_id` (HS256 de pruebas) del
+// payload SIN validar firma ni expiración: cualquiera que forje un token se
+// hace pasar por otro usuario. Solo con ALLOW_UNVERIFIED_BEARER (desarrollo,
+// o despliegues heredados mientras se configura AUTH_JWKS_URL/JWT_SECRET).
+type Unverified struct{}
+
+func (Unverified) Subject(_ context.Context, token string) (uuid.UUID, error) {
+	userID, ok := tokenSubject(token)
+	if !ok {
+		return uuid.Nil, apperr.Auth("Invalid token")
+	}
+	return userID, nil
+}
+
 func headerUser(r *http.Request) (uuid.UUID, error) {
 	userID, err := uuid.Parse(r.Header.Get(HeaderUserID))
 	if err != nil {
@@ -86,8 +109,7 @@ func headerUser(r *http.Request) (uuid.UUID, error) {
 	return userID, nil
 }
 
-// tokenSubject lee `sub` (tokens de auth) o `user_id` (HS256 de pruebas) del
-// payload del JWT. No valida firma ni expiración.
+// tokenSubject lee el sujeto del payload del JWT. No valida nada.
 func tokenSubject(token string) (uuid.UUID, bool) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {

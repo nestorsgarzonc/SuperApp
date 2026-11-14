@@ -17,6 +17,13 @@ type Config struct {
 	FirebaseCredentials string
 	FirebaseProjectID   string
 	WebAppURL           string
+
+	// Validación de Bearer tokens que llegan sin el api-gateway.
+	AuthJWKSURL           string
+	AuthIssuer            string
+	AuthAudience          string
+	JWTSecret             string // HS256 de /dev/token (= JWT_SECRET de control-de-accesos)
+	AllowUnverifiedBearer bool
 }
 
 func Load() (Config, error) {
@@ -31,6 +38,19 @@ func Load() (Config, error) {
 		FirebaseCredentials: os.Getenv("FIREBASE_CREDENTIALS_FILE"),
 		FirebaseProjectID:   os.Getenv("FIREBASE_PROJECT_ID"),
 		WebAppURL:           os.Getenv("WEB_APP_URL"),
+		AuthJWKSURL:         os.Getenv("AUTH_JWKS_URL"),
+		AuthIssuer:          os.Getenv("AUTH_JWT_ISSUER"),
+		AuthAudience:        getenv("AUTH_JWT_AUDIENCE", "superapp-api"),
+		JWTSecret:           os.Getenv("JWT_SECRET"),
+	}
+	// Por defecto solo en desarrollo; fuera de él hay que pedirlo explícitamente.
+	c.AllowUnverifiedBearer = c.IsDevelopment()
+	if v := os.Getenv("ALLOW_UNVERIFIED_BEARER"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return c, fmt.Errorf("ALLOW_UNVERIFIED_BEARER must be true or false")
+		}
+		c.AllowUnverifiedBearer = b
 	}
 
 	if c.DatabaseURL == "" {
@@ -39,6 +59,9 @@ func Load() (Config, error) {
 
 	if !c.IsDevelopment() && c.GatewaySecret == "" {
 		return c, fmt.Errorf("GATEWAY_SECRET is required when ENV=%s", c.Env)
+	}
+	if c.AuthJWKSURL != "" && c.AuthIssuer == "" {
+		return c, fmt.Errorf("AUTH_JWT_ISSUER is required with AUTH_JWKS_URL")
 	}
 	if !c.IsDevelopment() && c.InternalSecret == "" {
 		return c, fmt.Errorf("INTERNAL_SECRET is required when ENV=%s", c.Env)

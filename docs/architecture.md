@@ -75,7 +75,7 @@ SuperApp/
 ├── infra/
 └── docs/
     ├── architecture.md
-    ├── api-gateway.md       # contrato del gateway (por implementar)
+    ├── api-gateway.md       # contrato del gateway
     ├── control-de-accesos.md
     ├── events.md            # solicitudes de notificación entre servicios
     └── internal-apis.md     # endpoints /internal/* entre servicios

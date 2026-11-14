@@ -45,12 +45,21 @@ make down
 | `INTERNAL_SECRET` | — | debe coincidir con `X-Internal-Secret` que envían los demás ms |
 | `FIREBASE_CREDENTIALS_FILE` / `FIREBASE_PROJECT_ID` | — | vacío = sin push, solo bandeja |
 | `WEB_APP_URL` | — | URL https del front; el clic en un push web abre `WEB_APP_URL` + `deep_link` |
+| `AUTH_JWKS_URL` / `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE` | — / — / `superapp-api` | valida los Bearer RS256 de auth que llegan sin el gateway |
+| `JWT_SECRET` | — | valida los Bearer HS256 del login de pruebas (= `JWT_SECRET` de control-de-accesos) |
+| `ALLOW_UNVERIFIED_BEARER` | `true` solo con `ENV=development` | lee el Bearer **sin validar la firma**; solo para desarrollo local |
 
 ## Autenticación
 
-El servicio no valida tokens: confía en los headers que inyecta el api-gateway
-(`X-Gateway-Secret`, `X-User-ID`, `X-Complex-ID`, `X-Complex-Role`). El
-contrato completo está en [`docs/api-gateway.md`](../../docs/api-gateway.md).
+Detrás del api-gateway el servicio confía en los headers que inyecta
+(`X-Gateway-Secret`, `X-User-ID`, `X-Complex-ID`, `X-Complex-Role`); contrato en
+[`docs/api-gateway.md`](../../docs/api-gateway.md).
+
+Una petición con `Authorization: Bearer` y **sin** `X-Gateway-Secret` (p. ej.
+detrás de AWS API Gateway) se identifica validando el token: RS256 con
+`AUTH_JWKS_URL` y/o HS256 con `JWT_SECRET`. Sin ninguno de los dos se rechaza
+con `401`, salvo `ALLOW_UNVERIFIED_BEARER=true` (lectura sin firma: cualquiera
+puede hacerse pasar por otro usuario; solo desarrollo).
 
 ## API
 
