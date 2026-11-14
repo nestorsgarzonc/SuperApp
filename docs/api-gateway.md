@@ -142,7 +142,7 @@ Automatizadas en `back/api-gateway/internal/gateway/gateway_test.go`:
       notificaciones; `scripts/smoke.sh` lo prueba desde la red privada).
 
 De punta a punta, contra el stack de `docker-compose.yml`: `scripts/smoke.sh`
-(también en CI, `.github/workflows/ci.yml`).
+(se corre a mano antes de un merge; ver el README).
 
 ## Limitaciones conocidas
 

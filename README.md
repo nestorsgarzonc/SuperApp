@@ -51,8 +51,8 @@ Solo `front`, `api-gateway` y `postgres` publican puertos, y solo en `127.0.0.1`
 scripts/smoke.sh   # 30+ comprobaciones de punta a punta contra el stack (curl + jq)
 ```
 
-CI (`.github/workflows/ci.yml`) corre los tests de cada servicio y del front, y
-levanta este mismo stack con `docker compose up --build` para pasar el smoke test.
+Antes de un merge: los tests de cada servicio (`go test -race ./...`), los del
+front (`npm run lint && npm test`) y este smoke test contra el stack.
 
 ### Comandos útiles
 
