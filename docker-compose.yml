@@ -1,0 +1,212 @@
+# SuperApp — full local stack with one command:
+#
+#   docker compose up --build
+#
+# Open http://localhost:3000. Demo users (password Demo-Pass-2026!):
+# ana.garcia@demo.test (resident), luis.mora@demo.test (guard),
+# carlos.rojas@demo.test (admin) — or the /dev-login page.
+#
+# Only the front (3000), the gateway (8080) and Postgres (5440) are published,
+# and only on 127.0.0.1. The microservices are reachable only through the
+# gateway, as in production.
+#
+# Every secret below has a LOCAL-ONLY default so the stack starts without
+# setup. Override them in a .env file (see .env.example); never reuse these
+# values anywhere else. Production uses each service's docker-compose.prod.yml.
+name: superapp
+
+x-secrets:
+  internal: &internal-secret ${INTERNAL_SECRET:-local-internal-secret-change-me}
+  ca-gateway: &ca-gateway-secret ${CONTROL_ACCESOS_GATEWAY_SECRET:-local-ca-gateway-secret-change-me}
+  notif-gateway: &notif-gateway-secret ${NOTIFICACIONES_GATEWAY_SECRET:-local-notif-gateway-secret-change-me}
+  tenant-hmac: &tenant-hmac-secret ${AUTH_TENANT_HMAC_SECRET:-local-tenant-hmac-secret-0123456789abcdef}
+  dev-jwt: &dev-jwt-secret ${DEV_JWT_SECRET:-local-dev-jwt-secret-change-me}
+
+x-db-passwords:
+  auth: &auth-db-password ${AUTH_DB_PASSWORD:-auth-local-pass}
+  ca: &ca-db-password ${CONTROL_ACCESOS_DB_PASSWORD:-ca-local-pass}
+  notif: &notif-db-password ${NOTIFICACIONES_DB_PASSWORD:-notif-local-pass}
+
+x-jwt:
+  issuer: &jwt-issuer http://auth:8081
+  audience: &jwt-audience superapp-api
+
+services:
+  # ─── Data ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres-local-pass}
+      PGDATA: /var/lib/postgresql/data/pgdata
+      AUTH_DB_PASSWORD: *auth-db-password
+      CONTROL_ACCESOS_DB_PASSWORD: *ca-db-password
+      NOTIFICACIONES_DB_PASSWORD: *notif-db-password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/docker/postgres/init-databases.sh:/docker-entrypoint-initdb.d/00-init-databases.sh:ro
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5440}:5432"
+    healthcheck:
+      # TCP, not the socket: during first-boot init the entrypoint runs a
+      # temporary socket-only server, which must not count as ready.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # ─── One-shot init jobs (schema, seeds, keys) ───────────────────────────
+  auth-init:
+    build:
+      context: ./back/auth
+      dockerfile: db/Dockerfile.init
+    environment:
+      AUTH_DATABASE_URL: postgres://auth_db:${AUTH_DB_PASSWORD:-auth-local-pass}@postgres:5432/auth_db?sslmode=disable
+      KEYS_DIR: /keys
+      WITH_DEV_SEEDS: ${WITH_DEMO_DATA:-1}
+    volumes:
+      - auth_keys:/keys
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  control-de-accesos-migrate:
+    build:
+      context: ./back/control-de-accesos
+      dockerfile: db/Dockerfile.migrate
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: control_de_accesos
+      DB_PASSWORD: *ca-db-password
+      DB_NAME: control_de_accesos
+      DB_SSLMODE: disable
+      WITH_SEEDS: ${WITH_DEMO_DATA:-1}
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  notificaciones-migrate:
+    image: migrate/migrate:v4.18.3
+    volumes:
+      - ./back/notificaciones/db/migrations:/migrations:ro
+    command: ["-path", "/migrations", "-database", "postgres://notificaciones:${NOTIFICACIONES_DB_PASSWORD:-notif-local-pass}@postgres:5432/notificaciones?sslmode=disable", "up"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  # ─── Microservices (private network only) ───────────────────────────────
+  auth:
+    build: ./back/auth/ms
+    restart: unless-stopped
+    environment:
+      AUTH_ADDR: ":8081"
+      AUTH_DATABASE_URL: postgres://auth_db:${AUTH_DB_PASSWORD:-auth-local-pass}@postgres:5432/auth_db?sslmode=disable
+      JWT_PRIVATE_KEY_FILE: /keys/jwt-private.pem
+      JWT_ISSUER: *jwt-issuer
+      JWT_AUDIENCE: *jwt-audience
+      GATEWAY_TENANT_HMAC_SECRET: *tenant-hmac-secret
+    volumes:
+      - auth_keys:/keys:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/.well-known/jwks.json >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      auth-init: { condition: service_completed_successfully }
+
+  control-de-accesos:
+    build:
+      context: ./back/control-de-accesos/ms
+      args:
+        GO_TAGS: dev # /dev/* tooling + simulated QR system: local only, never in production
+    restart: unless-stopped
+    environment:
+      ENV: development
+      PORT: 8080
+      JWT_SECRET: *dev-jwt-secret # signs /dev/token tokens (dev login)
+      GATEWAY_SECRET: *ca-gateway-secret
+      INTERNAL_SECRET: *internal-secret
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: control_de_accesos
+      DB_PASSWORD: *ca-db-password
+      DB_NAME: control_de_accesos
+      DB_SSLMODE: disable
+      NOTIFICACIONES_URL: http://notificaciones:8083
+    depends_on:
+      control-de-accesos-migrate: { condition: service_completed_successfully }
+
+  notificaciones:
+    build: ./back/notificaciones/ms
+    restart: unless-stopped
+    environment:
+      ENV: development
+      PORT: 8083
+      DATABASE_URL: postgres://notificaciones:${NOTIFICACIONES_DB_PASSWORD:-notif-local-pass}@postgres:5432/notificaciones?sslmode=disable
+      GATEWAY_SECRET: *notif-gateway-secret
+      INTERNAL_SECRET: *internal-secret
+      # Push (FCM) is off without credentials: notifications land in the inbox only.
+    depends_on:
+      notificaciones-migrate: { condition: service_completed_successfully }
+
+  # ─── Edge ────────────────────────────────────────────────────────────────
+  api-gateway:
+    build: ./back/api-gateway
+    restart: unless-stopped
+    environment:
+      ENV: development
+      PORT: 8080
+      AUTH_URL: http://auth:8081
+      AUTH_JWT_ISSUER: *jwt-issuer
+      AUTH_JWT_AUDIENCE: *jwt-audience
+      AUTH_TENANT_HMAC_SECRET: *tenant-hmac-secret
+      CONTROL_ACCESOS_URL: http://control-de-accesos:8080
+      CONTROL_ACCESOS_SECRET: *ca-gateway-secret
+      NOTIFICACIONES_URL: http://notificaciones:8083
+      NOTIFICACIONES_SECRET: *notif-gateway-secret
+      INTERNAL_SECRET: *internal-secret
+      REDIS_URL: redis://redis:6379/0
+      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:5173
+      # Dev login (/dev-login): HS256 tokens from control-de-accesos /dev/token.
+      DEV_HS256_SECRET: *dev-jwt-secret
+      EXPOSE_DEV_ROUTES: "true"
+      # nginx (front) sets X-Forwarded-For; see TRUST_FORWARDED_FOR in back/api-gateway/README.md.
+      TRUST_FORWARDED_FOR: "true"
+      RATE_LIMIT_PUBLIC_PER_MIN: ${RATE_LIMIT_PUBLIC_PER_MIN:-60}
+      RATE_LIMIT_USER_PER_MIN: ${RATE_LIMIT_USER_PER_MIN:-300}
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-8080}:8080"
+    depends_on:
+      redis: { condition: service_healthy }
+      auth: { condition: service_healthy }
+      control-de-accesos: { condition: service_healthy }
+      notificaciones: { condition: service_started }
+
+  front:
+    build:
+      context: ./front
+      args:
+        VITE_API_BASE_URL: /api/v1
+        VITE_ENABLE_DEV_LOGIN: "true"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FRONT_PORT:-3000}:80"
+    depends_on:
+      api-gateway: { condition: service_healthy }
+
+volumes:
+  postgres_data:
+  auth_keys:

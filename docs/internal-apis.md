@@ -9,7 +9,7 @@ Endpoints que un servicio expone **solo a otros servicios**, bajo el prefijo
 - Respuesta con el mismo sobre que las APIs públicas: `{ "success": true, "data": ... }`.
 - Deben ser rápidos (< 100 ms): se llaman en caliente desde otros servicios.
 
-Estado: **por implementar**. Los consumidores están especificados.
+Estado: **implementado**.
 
 ## control-de-accesos
 
@@ -29,7 +29,7 @@ minuto en aplicarse.
 
 ## auth
 
-### `GET /internal/.well-known/jwks.json`
+### `GET /.well-known/jwks.json`
 
 Llaves públicas (JWKS) con las que `auth` firma los JWT.
 
@@ -37,8 +37,9 @@ Llaves públicas (JWKS) con las que `auth` firma los JWT.
 
 - Rotación de llaves: publicar la llave nueva en el JWKS **antes** de empezar a
   firmar con ella, y mantener la anterior hasta que expiren sus tokens.
-- Revocación: `auth` escribe `auth:revoked:<jti>` en Redis con TTL igual al
-  tiempo que le queda al token.
+- Ruta pública del ms (no está bajo `/internal`), pero el gateway no la expone.
+- Revocación: **pendiente**. auth aún no publica los `jti` revocados; un access
+  token vale hasta su `exp` (15 min).
 
 > El monolito firma con HMAC y un secreto compartido (`JWT_SECRET`). Con
 > microservicios conviene pasar a una firma asimétrica (RS256/EdDSA): así el

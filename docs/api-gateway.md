@@ -1,171 +1,145 @@
-# API Gateway — especificación
+# API Gateway
 
-Estado: **por implementar**. Este documento es el contrato que el gateway debe
-cumplir para que los microservicios (empezando por `notificaciones`) funcionen
-detrás de él. Los `ms` **no validan tokens**: confían en lo que el gateway les
-dice, así que cada regla de aquí es una regla de seguridad.
+Estado: **implementado** en `back/api-gateway` (Go, sin base de datos). Este
+documento es el contrato entre el front, el gateway y los `ms`. Los `ms`
+confían en los headers de identidad que inyecta el gateway, así que cada regla
+de aquí es una regla de seguridad. Configuración y pruebas:
+[`back/api-gateway/README.md`](../back/api-gateway/README.md).
 
 ## Responsabilidades
 
-1. **Punto de entrada único.** El frontend solo conoce la URL del gateway
-   (`/api/v1/...`). Los `ms` viven en una red privada y no son accesibles desde
-   internet.
-2. **Autenticación.** Valida el JWT emitido por `auth` en cada petición.
-3. **Autorización de conjunto.** Si la petición trae `X-Complex-ID`, verifica
-   con `control-de-accesos` que el usuario pertenece a ese conjunto y obtiene
-   su rol.
-4. **Identidad de confianza.** Elimina los headers de identidad que mande el
-   cliente e inyecta los suyos.
-5. **Enrutamiento** por prefijo hacia cada `ms`.
-6. **Protección.** Rate limiting, límite de tamaño del body, timeouts, CORS.
-7. **Bloqueo de rutas internas.** Nunca reenvía `/internal/*`.
-
-El gateway **no tiene base de datos** (ver `architecture.md`). Solo usa caché
-en memoria o Redis.
+1. **Punto de entrada único.** El front solo conoce `/api/v1/...`. Los `ms`
+   viven en una red privada.
+2. **Autenticación.** Valida localmente el JWT RS256 de `auth` con su JWKS.
+3. **Autorización de conjunto.** Si llega `X-Complex-ID`, obtiene el rol real
+   del usuario en ese conjunto desde `control-de-accesos`.
+4. **Identidad de confianza.** Borra los headers de identidad del cliente e
+   inyecta los suyos.
+5. **Enrutamiento** por prefijo (tabla explícita: lo que no está, es `404`).
+6. **Protección.** Rate limiting (Redis), límite de body, timeouts, CORS.
+7. **Bloqueo de rutas internas.** Nunca reenvía `/internal/*`, tampoco a través
+   del prefijo de notificaciones ni con trucos de codificación (`%2e%2e`, `%2f`).
 
 ## Flujo de una petición
 
 ```mermaid
 sequenceDiagram
-  participant App as front (app)
+  participant App as front
   participant GW as api-gateway
-  participant AU as auth
   participant CA as control-de-accesos
   participant MS as ms destino
 
-  App->>GW: GET /api/v1/users/me/notifications<br/>Authorization: Bearer <jwt><br/>X-Complex-ID: <complex>
-  GW->>GW: 1. borrar X-User-ID, X-Complex-Role, X-Gateway-Secret del cliente
-  GW->>AU: 2. validar JWT (JWKS en caché)
-  AU-->>GW: claims { sub: userId, exp, ... }
-  GW->>CA: 3. GET /internal/users/{userId}/complexes/{complexId}/role (caché 60 s)
-  CA-->>GW: { role: "RESIDENT" } ó 404
-  GW->>MS: 4. GET /users/me/notifications<br/>X-User-ID, X-Complex-ID, X-Complex-Role, X-Gateway-Secret
-  MS-->>GW: { success, data }
+  App->>GW: GET /api/v1/notifications/users/me/notifications<br/>Authorization: Bearer <jwt> · X-Complex-ID
+  GW->>GW: 1. borra X-User-ID, X-Complex-Role, X-Gateway-*, X-Internal-*, X-Tenant-ID, X-Forwarded-*
+  GW->>GW: 2. ruta + path seguro (si no → 404)
+  GW->>GW: 3. valida JWT con el JWKS en caché (si no → 401) · rate limit (429)
+  GW->>CA: 4. GET /internal/users/{u}/complexes/{c}/role (caché 60 s)
+  CA-->>GW: { role } · 404 → 403 · error → 503
+  GW->>MS: 5. GET /users/me/notifications<br/>X-Gateway-Secret · X-User-ID · X-Complex-ID · X-Complex-Role · X-Request-ID
+  MS-->>GW: respuesta (sin headers CORS propios)
   GW-->>App: respuesta tal cual
 ```
 
-### 1. Limpiar headers del cliente
-
-**Antes de cualquier otra cosa** el gateway borra de la petición entrante:
-`X-User-ID`, `X-Complex-Role`, `X-Gateway-Secret` y cualquier `X-Internal-*`.
-Si no lo hace, cualquier cliente se hace pasar por otro usuario o por admin.
-`X-Complex-ID` sí viene del cliente (es el conjunto seleccionado en la app),
-pero **solo** se reenvía después de validarlo en el paso 3.
-
-### 2. Autenticación
-
-- Header `Authorization: Bearer <jwt>`. Sin token o token inválido/expirado → `401`.
-- Validación local de la firma con las llaves públicas de `auth`
-  (`GET /internal/.well-known/jwks.json`, ver `internal-apis.md`), cacheadas y
-  refrescadas cuando aparece un `kid` desconocido. Así el gateway no llama a
-  `auth` en cada petición.
-- Revocación: `auth` publica los `jti` revocados en Redis
-  (`auth:revoked:<jti>` con TTL = expiración del token). El gateway los
-  consulta. (El monolito ya tenía este concepto: `TokenDenylist`.)
-- Rutas públicas (sin token): `POST /api/v1/auth/login`, `/auth/refresh`,
-  `/auth/register` y `GET /healthz`.
-
-### 3. Autorización de conjunto
-
-Si la petición trae `X-Complex-ID`:
-
-1. Validar que sea un UUID → si no, `422`.
-2. Consultar el rol: `GET /internal/users/{userId}/complexes/{complexId}/role`
-   en control-de-accesos (caché por `(userId, complexId)` de **60 s**).
-3. `404` (el usuario no pertenece al conjunto) → responder `403` sin llegar al `ms`.
-4. Reenviar `X-Complex-ID` y `X-Complex-Role: <role>`.
-
-Si control-de-accesos no responde → `503` (fail-closed). Nunca reenviar sin rol.
-
-El gateway **no decide** qué rol necesita cada ruta: eso lo hace cada `ms`
-(p. ej. un endpoint de administración exige `ADMIN`). El gateway solo
-garantiza que el rol reenviado es verdadero.
-
-### 4. Headers hacia los `ms`
-
-| Header | Valor | Siempre |
-|---|---|---|
-| `X-Gateway-Secret` | secreto compartido con ese `ms` (`GATEWAY_SECRET`) | sí |
-| `X-User-ID` | `sub` del JWT | en rutas autenticadas |
-| `X-Complex-ID` | conjunto validado | si el cliente lo envió |
-| `X-Complex-Role` | `ADMIN` · `RESIDENT` · `GUARD` · ... | si hay `X-Complex-ID` |
-| `X-Request-ID` | id de correlación (generar si no viene) | sí |
-
 ## Tabla de rutas
 
-El gateway recibe `/api/v1/<ruta>`, quita el prefijo `/api/v1` y reenvía
-`<ruta>` al `ms` correspondiente.
+| Prefijo público | `ms` | Path que recibe el `ms` | Público (sin token) |
+|---|---|---|---|
+| `/api/v1/auth` | auth `:8081` | igual | `POST` `login`, `refresh`, `logout`, `register`, `forgot-password`, `reset-password` |
+| `/api/v1/users`, `/roles`, `/permissions`, `/sessions` | auth | igual | — |
+| `/api/v1/notifications` | notificaciones `:8083` | **sin** `/api/v1/notifications` | — |
+| `/api/v1/access`, `/access-grants`, `/access-logs`, `/resident-movements`, `/units`, `/me` | control-de-accesos `:8080` | igual | — |
+| `/api/v1/dev` (solo `EXPOSE_DEV_ROUTES`, solo `ENV=development`) | control-de-accesos | igual | `GET /dev/users`, `GET /dev/token` |
 
-### notificaciones (`http://notificaciones:8083`)
+- auth y control-de-accesos ya sirven bajo `/api/v1`, por eso el path no cambia.
+- notificaciones sirve en la raíz; el front la llama con el prefijo
+  `/notifications` (`/api/v1/notifications/users/me/notifications` →
+  `/users/me/notifications`). Es el mismo contrato que el stage de AWS API
+  Gateway (`/api/v1/notifications/{proxy+}`).
+- Las coincidencias son por segmento: `/api/v1/access` no captura `/api/v1/accessories`.
 
-| Ruta pública | Método | Requiere `X-Complex-ID` |
+## Headers hacia los `ms`
+
+| Header | Valor | Cuándo |
 |---|---|---|
-| `/api/v1/users/me/notifications` | GET | sí |
-| `/api/v1/users/me/notifications/unread-count` | GET | sí |
-| `/api/v1/notifications/{id}/read` | PATCH | sí |
-| `/api/v1/notifications/mark-all-read` | POST | sí |
-| `/api/v1/me/notification-preferences` | GET, PUT | no |
-| `/api/v1/me/devices` | GET, POST | no |
-| `/api/v1/me/devices/unregister` | POST | no |
-| `/api/v1/me/devices/{id}` | DELETE | no |
+| `X-Gateway-Secret` | secreto de **ese** `ms` | rutas autenticadas hacia control-de-accesos y notificaciones |
+| `X-User-ID` | `sub` del JWT | rutas autenticadas |
+| `X-Complex-ID` | conjunto validado (UUID canónico) | si el cliente lo envió y es miembro |
+| `X-Complex-Role` | rol según control-de-accesos | junto con `X-Complex-ID` |
+| `X-Tenant-ID`, `X-Gateway-Timestamp`, `X-Gateway-Signature` | contexto de tenant firmado (ver abajo) | solo hacia auth, si hay conjunto validado |
+| `X-Request-ID`, `X-Correlation-ID` | id de correlación (se respeta el del cliente si es válido) | siempre |
+| `X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto` | IP/protocolo del cliente | siempre |
+| `Authorization` | se reenvía tal cual | siempre (auth lo necesita para identificar al usuario) |
 
-Reglas de prefijo sugeridas: `/users/me/notifications*`, `/notifications*`,
-`/me/notification-preferences`, `/me/devices*` → notificaciones. Añadir aquí
-las de `auth` y `control-de-accesos` cuando existan.
+Las rutas públicas se reenvían **sin** identidad: ni `X-User-ID`, ni
+`X-Gateway-Secret`, ni `X-Complex-ID`.
+
+### Contexto de tenant para auth
+
+auth no confía en `X-Complex-ID`: exige una firma del gateway.
+`X-Gateway-Signature = hex(HMAC-SHA256(AUTH_TENANT_HMAC_SECRET, userId + "\n" + tenantId + "\n" + unixSeconds))`,
+con `X-Gateway-Timestamp = unixSeconds` (ventana ±60 s). El `tenantId` es el
+`complexId` ya validado contra las membresías.
+
+## Tokens
+
+- **RS256** emitidos por auth: firma con el JWKS (`GET http://auth:8081/.well-known/jwks.json`,
+  caché 10 min, refresco ante `kid` desconocido limitado a 1 cada 30 s),
+  `iss` = `AUTH_JWT_ISSUER`, `aud` = `AUTH_JWT_AUDIENCE`, `exp` obligatorio,
+  `sub` UUID. Solo se usa `sub`: el rol nunca sale del token.
+- **HS256** de `/dev/token` (dev login): solo con `ENV=development` y
+  `DEV_HS256_SECRET`. Se toma `user_id`; los claims `role`/`complex_id` se
+  ignoran y el rol se resuelve igual que con RS256.
+- Cualquier otro `alg` (incluido `none`) → `401`.
 
 ## Rate limiting y límites
 
-| Alcance | Límite sugerido |
-|---|---|
-| Por IP, rutas públicas de auth | 10 req/min |
-| Por usuario, general | 300 req/min |
-| Tamaño del body | 1 MiB (los `ms` también lo limitan) |
-| Timeout hacia el `ms` | 30 s |
+| Alcance | Por defecto | Variable |
+|---|---|---|
+| Por IP, rutas públicas | 10 req/min | `RATE_LIMIT_PUBLIC_PER_MIN` |
+| Por usuario, rutas autenticadas | 300 req/min | `RATE_LIMIT_USER_PER_MIN` |
+| Body | 1 MiB | `MAX_BODY_BYTES` |
+| Timeout hacia el `ms` | 30 s | `UPSTREAM_TIMEOUT_SECONDS` |
 
-Contadores en Redis (`ratelimit:<scope>:<id>:<ventana>`) para que funcione con
-varias réplicas del gateway. Exceder el límite → `429` con `Retry-After`.
+Ventana fija de 1 minuto en Redis (`ratelimit:<scope>:<id>:<ventana>`), compartida
+por todas las réplicas. Sin `REDIS_URL` el contador es por instancia. Si Redis
+falla, la petición **pasa** (se prioriza disponibilidad) y se registra el error.
 
-## Errores
+## Errores del gateway
 
-Los errores generados por el propio gateway usan el mismo sobre que los `ms`:
-
-```json
-{ "success": false, "error": { "code": "AUTH_001", "message": "Authentication required" } }
-```
+Mismo sobre que los `ms`: `{ "success": false, "error": { "code", "message" } }`.
+Las respuestas de los `ms` se devuelven sin modificar (salvo los headers CORS).
 
 | Caso | HTTP | code |
 |---|---|---|
-| Sin token / token inválido o revocado | 401 | `AUTH_001` |
+| Sin token / token inválido o expirado | 401 | `AUTH_001` |
 | No pertenece al conjunto | 403 | `PERM_003` |
+| Ruta desconocida, `/internal/*` o path inseguro | 404 | `RES_001` |
+| Body demasiado grande | 413 | `SYS_003` |
 | `X-Complex-ID` mal formado | 422 | `VAL_004` |
-| Rate limit | 429 | `SYS_004` |
-| `ms` o control-de-accesos caídos | 503 | `SYS_005` |
-| Ruta desconocida o `/internal/*` | 404 | `RES_001` |
-
-Las respuestas de los `ms` se devuelven sin modificar.
-
-## Configuración
-
-| Variable | Descripción |
-|---|---|
-| `AUTH_JWKS_URL` | `http://auth:8081/internal/.well-known/jwks.json` |
-| `CONTROL_ACCESOS_URL` | `http://control-de-accesos:8082` |
-| `INTERNAL_SECRET` | para llamar a `/internal/*` de otros servicios |
-| `NOTIFICACIONES_URL` / `NOTIFICACIONES_SECRET` | destino y `GATEWAY_SECRET` de notificaciones |
-| `REDIS_URL` | revocación, rate limit y caché de roles |
-| `CORS_ALLOWED_ORIGINS` | orígenes del front web |
-
-Un secreto distinto por `ms` limita el daño si uno se filtra.
+| Rate limit (con `Retry-After`) | 429 | `SYS_004` |
+| `ms` o control-de-accesos caídos (fail-closed) | 503 | `SYS_005` |
+| `ms` no responde a tiempo | 504 | `SYS_005` |
 
 ## Pruebas de aceptación
 
-Antes de poner el gateway delante de notificaciones, estas pruebas deben pasar:
+Automatizadas en `back/api-gateway/internal/gateway/gateway_test.go`:
 
-- [ ] Petición con `X-User-ID` falso y token válido de otro usuario → el `ms` recibe el `X-User-ID` del token.
-- [ ] Petición con `X-Complex-Role: ADMIN` de un residente → el `ms` recibe `RESIDENT`.
-- [ ] `X-Complex-ID` de un conjunto al que el usuario no pertenece → `403` del gateway, el `ms` no recibe nada.
-- [ ] Token expirado o revocado → `401`.
-- [ ] `GET /api/v1/internal/...` → `404`.
-- [ ] Llamada directa al `ms` sin `X-Gateway-Secret` → `401` (verificado por el `ms`).
-- [ ] control-de-accesos caído → `503`, nunca se reenvía sin rol.
-- [ ] Superar 300 req/min con el mismo usuario → la siguiente recibe `429`.
+- [x] `X-User-ID` falso con token válido → el `ms` recibe el del token.
+- [x] `X-Complex-Role: ADMIN` de un residente → el `ms` recibe `RESIDENT`.
+- [x] Conjunto ajeno → `403`, el `ms` no recibe nada.
+- [x] Token expirado, falsificado, de otro `iss` o `alg: none` → `401`.
+- [x] `/internal/*` (también `/api/v1/notifications/internal/...` y variantes codificadas) → `404`.
+- [x] control-de-accesos caído → `503`, nunca se reenvía sin rol.
+- [x] Superar el límite por usuario → `429` con `Retry-After`.
+- [ ] Llamada directa al `ms` sin `X-Gateway-Secret` → `401`: depende de cada `ms`
+      (ver limitaciones).
+
+## Limitaciones conocidas
+
+- **Revocación inmediata:** auth no publica los `jti` revocados, así que un
+  access token sigue siendo válido hasta su `exp` (15 min) tras un logout.
+- **notificaciones sin gateway:** si recibe un Bearer sin `X-Gateway-Secret`,
+  toma el `sub` **sin validar la firma** (modo AWS API Gateway). Debe quedar
+  solo en la red privada; en `docker-compose.yml` no se publica su puerto.
+- **`TRUST_FORWARDED_FOR`:** solo activarlo si todo el tráfico llega por un
+  proxy propio (nginx/ALB); si no, el cliente elige su IP para el rate limit.

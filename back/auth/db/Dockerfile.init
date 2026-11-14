@@ -1,0 +1,22 @@
+# One-shot init job for local/dev environments (build context: back/auth):
+#   1. creates the RS256 signing key if the key volume is empty (cmd/keygen),
+#   2. applies migrations + base seeds (cmd/setup, idempotent, advisory lock),
+#   3. optionally loads the demo users (db/dev-seeds) with WITH_DEV_SEEDS=1.
+# Production keeps these as separate deploy steps and mounts the key as a secret.
+FROM golang:1.27.1-alpine AS build
+WORKDIR /src
+COPY ms/go.mod ms/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY ms/ ./
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ ./cmd/setup ./cmd/keygen
+
+# Same image as the database: psql is already there, nothing to install.
+FROM postgres:18-alpine
+COPY --from=build /out/setup /out/keygen /usr/local/bin/
+COPY db/migrations /db/migrations
+COPY db/seeds /db/seeds
+COPY db/dev-seeds /db/dev-seeds
+COPY db/init.sh /usr/local/bin/auth-init
+ENV AUTH_DB_DIR=/db
+ENTRYPOINT ["/usr/local/bin/auth-init"]
