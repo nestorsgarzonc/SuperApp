@@ -62,8 +62,11 @@ echo "== cross-service: control-de-accesos → notificaciones → inbox"
 SOFIA=$(access "$(login sofia.diaz@demo.test)")
 ANDRES=$(access "$(login andres.vega@demo.test)")
 VISITOR="Smoke $(date +%s)"
+# Body built outside "$(...)": bash 3.2 (macOS) keeps the backslashes of \"
+# inside a command substitution nested in double quotes, mangling the JSON.
+QR_BODY=$(jq -nc --arg u "$UNIT_A102" --arg v "$VISITOR" --arg t "$(in2h)" '{unit_id:$u,visitor_name:$v,valid_until:$t}')
 check "resident creates a QR pass" true "$(curl -s -X POST "$B/access/qr-codes" -H "$(auth "$SOFIA")" -H "X-Complex-ID: $C1" -H 'Content-Type: application/json' \
-	-d "{\"unit_id\":\"$UNIT_A102\",\"visitor_name\":\"$VISITOR\",\"valid_until\":\"$(in2h)\"}" | jq -r .success)"
+	-d "$QR_BODY" | jq -r .success)"
 got=false
 for _ in $(seq 1 20); do
 	if curl -s "$B/notifications/users/me/notifications" -H "$(auth "$ANDRES")" -H "X-Complex-ID: $C1" | jq -e --arg v "$VISITOR" '.data[]? | select(.body | contains($v))' >/dev/null; then

@@ -22,7 +22,7 @@ export function DevPanel() {
 
   const load = useCallback(async () => {
     try {
-      setD(await api<QrDetail>('/dev/qr-system', { auth: false }));
+      setD(await api<QrDetail>('/dev/qr-system', { optional: true }));
       setError(false);
     } catch {
       setError(true);
@@ -36,10 +36,10 @@ export function DevPanel() {
   }, [load]);
 
   async function setMode(mode: 'UP' | 'DOWN') {
-    setD(await api<QrDetail>('/dev/qr-system', { method: 'PUT', body: { mode }, auth: false }));
+    setD(await api<QrDetail>('/dev/qr-system', { method: 'PUT', body: { mode }, optional: true }));
   }
   async function resetBreaker() {
-    setD(await api<QrDetail>('/dev/qr-system/reset', { method: 'POST', auth: false }));
+    setD(await api<QrDetail>('/dev/qr-system/reset', { method: 'POST', optional: true }));
   }
 
   if (error || !d?.simulated) return null;

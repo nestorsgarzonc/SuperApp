@@ -41,7 +41,7 @@ const chipText = async (p) => {
 const sess = (p) => p.evaluate(() => window.__superappSession);
 const api = (p, path, init = {}) => p.evaluate(async ([path, init]) => {
   const s = window.__superappSession;
-  const r = await fetch('/api/v1' + path, { ...init, headers: { Authorization: 'Bearer ' + s.token, 'Content-Type': 'application/json', ...(init.headers ?? {}) } });
+  const r = await fetch('/api/v1' + path, { ...init, headers: { Authorization: 'Bearer ' + s.token, 'X-Complex-ID': s.complexId, 'Content-Type': 'application/json', ...(init.headers ?? {}) } });
   return { s: r.status, d: (await r.json().catch(() => null))?.data };
 }, [path, init]);
 
@@ -49,6 +49,7 @@ section('Login de desarrollo: personas leídas de la base');
 {
   const ctx = await mk();
   const p = await open(ctx, 'login');
+  await p.getByTestId('dev-login').locator('.profile-card').first().waitFor(); // la lista llega después del contenedor
   const names = await p.getByTestId('dev-login').locator('.profile-card b').allInnerTexts();
   ok('7 personas listadas desde /dev/users', names.length === 7, names.join(', '));
   ok('Andrés muestra sus dos conjuntos y roles', (await card(p, 'Andrés').innerText()).includes('Portería') && (await card(p, 'Andrés').innerText()).includes('Residente'));

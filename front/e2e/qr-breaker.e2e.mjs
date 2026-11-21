@@ -45,8 +45,14 @@ const devAction = async (p, name) => {
 };
 
 // Partir siempre de "operativo y circuito cerrado" (una corrida anterior pudo dejarlo caído).
-await fetch(APP + '/api/v1/dev/qr-system', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'UP' }) });
-await fetch(APP + '/api/v1/dev/qr-system/reset', { method: 'POST' });
+// Detrás del gateway solo /dev/users y /dev/token son públicos: el resto de /dev pide token.
+const devUsers = (await (await fetch(APP + '/api/v1/dev/users')).json()).data;
+const anyone = devUsers[0];
+const m0 = anyone.memberships[0];
+const devToken = (await (await fetch(`${APP}/api/v1/dev/token?user_id=${anyone.user_id}&complex_id=${m0.complex_id}&role=${m0.role}`)).json()).data.token;
+const devAuth = { Authorization: 'Bearer ' + devToken, 'X-Complex-ID': m0.complex_id };
+await fetch(APP + '/api/v1/dev/qr-system', { method: 'PUT', headers: { ...devAuth, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'UP' }) });
+await fetch(APP + '/api/v1/dev/qr-system/reset', { method: 'POST', headers: devAuth });
 
 section('Panel de desarrollo');
 const ana = await open('Ana García');
