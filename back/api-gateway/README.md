@@ -32,13 +32,32 @@ INTERNAL_SECRET=... go run ./cmd/gateway
 ## Pruebas
 
 ```sh
-go test -race ./...
+go test -race ./...                              # todo, sin dependencias externas
+bash scripts/test-unit-gateway.sh                # desde la raíz: un PASS/FAIL por caso, con su ID
+bash scripts/test-unit-gateway.sh --cover        # + cobertura por paquete
+bash scripts/test-unit-gateway.sh --mutation     # + mutación (gremlins, sobre una copia)
+bash scripts/test-unit-gateway.sh --run PL,AN05  # solo esas partes o casos
 ```
 
-Cubren las pruebas de aceptación de `docs/api-gateway.md` contra servicios
-falsos (`httptest`): suplantación de headers, rol real, conjunto ajeno, tokens
-inválidos, sesiones revocadas, `/internal` y path traversal, fail-closed,
-rate limit, CORS, body. De punta a punta: `scripts/smoke.sh` en la raíz.
+Pruebas unitarias por paquete; cada caso lleva su ID al inicio del nombre
+(`TestPL05_…` → PL-05, subcasos `PL-05a…`):
+
+| Prefijo | Paquete | Qué cubre |
+|---|---|---|
+| AN | `authn` | claims RS256, ataques a JWT, tokens de desarrollo, JWKS (filtrado, rotación, caché) |
+| MB | `membership` | respuestas de control-de-accesos, caché positiva/negativa, concurrencia |
+| RL | `ratelimit` | bordes del límite y de la ventana, en memoria y en Redis |
+| RV | `revocation` | sesiones revocadas en Redis |
+| RT, CR | `gateway` | paths seguros, tabla de rutas, IP del cliente, firma del tenant, CORS |
+| PL | `gateway` | el pipeline completo con dobles: orden de los controles, cabeceras, límites, fallas |
+| AC | `gateway` | las pruebas de aceptación de `docs/api-gateway.md`, con el verificador y las membresías reales |
+| AE, CF | `apierr`, `config` | sobre de error y arranque seguro |
+
+Ningún caso necesita red real, base de datos ni Redis: los servicios son
+servidores `httptest` falsos y Redis es [miniredis](https://github.com/alicebob/miniredis).
+Detalle de casos, dobles, cobertura y hallazgos en
+[`docs/pruebas-api-gateway.md`](../../docs/pruebas-api-gateway.md). De punta a
+punta: `scripts/smoke.sh` en la raíz.
 
 ## Configuración
 
