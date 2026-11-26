@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -815,5 +816,33 @@ func waitLog(t *testing.T, l *logSpy, msg string) {
 			t.Fatalf("no apareció %q en el log", msg)
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// Caso PL-18 · los errores del servicio llegan tal cual
+// Técnica: Partición en clases de equivalencia (un status por clase: 4xx de negocio, 409, 5xx).
+// Entrada: el servicio responde 400, 404, 409 y 500 con su propio sobre de error
+// Debe hacer / esperado: el cliente recibe el mismo status, el mismo cuerpo y el mismo
+// Content-Type; el gateway no lo convierte en uno de sus errores (502/503).
+func TestPL18_ErroresDelServicioLleganTalCual(t *testing.T) {
+	for _, status := range []int{400, 404, 409, 500} {
+		t.Run(fmt.Sprintf("PL-18 status %d", status), func(t *testing.T) {
+			body := fmt.Sprintf(`{"success":false,"error":{"code":"SVC_%d","message":"del servicio"}}`, status)
+			svc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/problem+json")
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(body))
+			}))
+			t.Cleanup(svc.Close)
+			p := newPipe(t, func(c *config.Config) { c.ControlDeAccesos.URL = mustURL(svc.URL) })
+			resp := p.do("POST", "/api/v1/access-grants", authed(), "{}")
+			got, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode != status || string(got) != body || resp.Header.Get("Content-Type") != "application/problem+json" {
+				t.Fatalf("status %d content-type %q body %s", resp.StatusCode, resp.Header.Get("Content-Type"), got)
+			}
+			if len(p.log.find("upstream unavailable")) != 0 {
+				t.Fatal("un error de negocio se registró como caída")
+			}
+		})
 	}
 }
