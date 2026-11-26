@@ -1,0 +1,54 @@
+name: Pruebas C4 - Back de Autenticacion
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "back/auth/ms/**"
+      - ".github/workflows/test-auth-c4.yml"
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: back/auth/ms
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: back/auth/ms/go.mod
+
+      - name: Pruebas de C4 (con -race)
+        run: |
+          set -o pipefail
+          go test -race -count=1 -v ./internal/c4tests/ 2>&1 | tee test.log
+
+      - name: Resumen por prueba
+        if: always()
+        run: |
+          {
+            echo "## Pruebas de C4 (Back de Autenticacion)"
+            echo
+            echo "- Pasaron: $(grep -c '^--- PASS' test.log)"
+            echo "- Fallaron: $(grep -c '^--- FAIL' test.log)"
+            echo
+            echo '```'
+            grep -E '^(--- |PASS|FAIL|ok)' test.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cobertura de sentencias
+        run: |
+          go test -race -count=1 \
+            -coverpkg=./internal/core/usecases/auth/...,./internal/core/usecases/authorization,./internal/core/usecases/sessions,./internal/infrastructure/security/jwt,./internal/presentation/shared,./internal/presentation/reader,./internal/presentation/writer,./internal \
+            -coverprofile=cover.out ./internal/c4tests/
+          go tool cover -func=cover.out | tee cover.txt
+          {
+            echo
+            echo "## Cobertura de sentencias"
+            echo '```'
+            cat cover.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
