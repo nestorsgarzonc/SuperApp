@@ -380,3 +380,18 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+// Caso MB-14 · URL base que no permite construir la petición
+// Técnica: Adivinación de errores.
+// Entrada: Resolver con un host inválido ("bad host", con espacio)
+// Debe hacer / esperado: error sin llamar a la red y sin guardar nada en caché; nunca member=true.
+func TestMB14_URLBaseInvalida(t *testing.T) {
+	r := NewResolver(&url.URL{Scheme: "http", Host: "bad host"}, secret, time.Minute, nil)
+	role, member, err := r.Role(context.Background(), user, complexA)
+	if err == nil || member || role != "" {
+		t.Fatalf("Role = %q, %v, %v", role, member, err)
+	}
+	if len(r.entries) != 0 {
+		t.Fatalf("se guardaron %d entradas", len(r.entries))
+	}
+}
