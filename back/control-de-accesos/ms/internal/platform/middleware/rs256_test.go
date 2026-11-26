@@ -58,7 +58,12 @@ func goodClaims(user string) map[string]any {
 		"iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(time.Minute).Unix()}
 }
 
-func TestRS256Validation(t *testing.T) {
+// Caso MW-S1 · Validación RS256 (semiintegración)
+// Técnica: Partición en clases de equivalencia.
+// Entrada: JWKS real
+// Debe hacer / esperado: —
+// Usa un servidor JWKS real (httptest.Server), claves RSA 2048 y los globales verifier/roleResolver: no es unitario estricto.
+func TestMWS1_ValidacionRS256(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	other, _ := rsa.GenerateKey(rand.Reader, 2048)
 	setupRS256(t, key, "k1")
@@ -92,14 +97,24 @@ func TestRS256Validation(t *testing.T) {
 	}
 }
 
-func TestRS256Disabled(t *testing.T) {
+// Caso MW-S2 · RS256 deshabilitado (semiint.)
+// Técnica: Adivinación de errores.
+// Entrada: —
+// Debe hacer / esperado: rechazo
+// Depende del global verifier (nil por defecto); usa clave RSA 2048 real.
+func TestMWS2_RS256DeshabilitadoSeRechaza(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	if _, err := ValidateJWTContext(context.Background(), signRS256(t, key, "k1", goodClaims(uuid.NewString()))); err == nil {
 		t.Fatal("RS256 must be rejected when not configured")
 	}
 }
 
-func TestRS256ComplexAndRole(t *testing.T) {
+// Caso MW-S3 · Complejo y rol RS256 (semiint.)
+// Técnica: Tabla de decisión.
+// Entrada: —
+// Debe hacer / esperado: —
+// Usa servidor JWKS real y asigna el global roleResolver.
+func TestMWS3_RS256ComplejoYRol(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	setupRS256(t, key, "k1")
 	user, member, stranger := uuid.New(), uuid.New(), uuid.New()

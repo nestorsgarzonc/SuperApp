@@ -39,7 +39,10 @@ var errBoom = errors.New("boom")
 func fail(context.Context) error { return errBoom }
 func ok(context.Context) error   { return nil }
 
-func TestOpensAfterConsecutiveFailures(t *testing.T) {
+// Caso CB-E01..E15 · los 15 existentes
+// Técnica: Transición de estados, Partición en clases de equivalencia, Adivinación de errores.
+// Debe hacer / esperado: sin cambio de lógica (CB-E12 refactorizado, ver abajo)
+func TestCBE01_AbreTrasFallosConsecutivos(t *testing.T) {
 	b, _, tr := newTestBreaker(3, 10*time.Second)
 	for i := 0; i < 2; i++ {
 		_ = b.Do(context.Background(), fail)
@@ -56,7 +59,8 @@ func TestOpensAfterConsecutiveFailures(t *testing.T) {
 	}
 }
 
-func TestSuccessResetsTheFailureCount(t *testing.T) {
+// Caso CB-E02 · existente · técnica: PE/TE · condición: los fallos deben ser consecutivos
+func TestCBE02_UnExitoReiniciaElContadorDeFallos(t *testing.T) {
 	b, _, _ := newTestBreaker(3, time.Second)
 	_ = b.Do(context.Background(), fail)
 	_ = b.Do(context.Background(), fail)
@@ -68,7 +72,8 @@ func TestSuccessResetsTheFailureCount(t *testing.T) {
 	}
 }
 
-func TestOpenRejectsWithoutCallingTheDependency(t *testing.T) {
+// Caso CB-E03 · existente · técnica: TE · condición: OPEN → CIRCUIT_OPEN sin invocar fn
+func TestCBE03_AbiertoRechazaSinLlamarALaDependencia(t *testing.T) {
 	b, _, _ := newTestBreaker(1, 10*time.Second)
 	_ = b.Do(context.Background(), fail)
 
@@ -87,7 +92,9 @@ func TestOpenRejectsWithoutCallingTheDependency(t *testing.T) {
 	}
 }
 
-func TestHungCallIsCutByTheTimeoutAndCounts(t *testing.T) {
+// Caso CB-E04 · existente · técnica: TE/EG · condición: TIMEOUT cuenta como fallo
+// TEMPORIZADOR REAL ACOTADO: context.WithTimeout de 50 ms; estabilidad verificada con -race -count=20.
+func TestCBE04_LlamadaColgadaSeCortaPorTimeoutYCuenta(t *testing.T) {
 	b, _, _ := newTestBreaker(2, time.Second)
 	hang := func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }
 
@@ -106,7 +113,8 @@ func TestHungCallIsCutByTheTimeoutAndCounts(t *testing.T) {
 	}
 }
 
-func TestHalfOpenProbeSuccessCloses(t *testing.T) {
+// Caso CB-E05 · existente · técnica: TE · condición: OPEN→HALF_OPEN→CLOSED
+func TestCBE05_ProbeExitosoEnHalfOpenCierra(t *testing.T) {
 	b, clk, tr := newTestBreaker(1, 10*time.Second)
 	_ = b.Do(context.Background(), fail)
 	clk.Advance(11 * time.Second)
@@ -123,7 +131,8 @@ func TestHalfOpenProbeSuccessCloses(t *testing.T) {
 	}
 }
 
-func TestHalfOpenProbeFailureReopens(t *testing.T) {
+// Caso CB-E06 · existente · técnica: TE · condición: HALF_OPEN→OPEN con nuevo cool-down
+func TestCBE06_ProbeFallidoReabreConNuevoEnfriamiento(t *testing.T) {
 	b, clk, _ := newTestBreaker(1, 10*time.Second)
 	_ = b.Do(context.Background(), fail)
 	clk.Advance(11 * time.Second)
@@ -138,7 +147,8 @@ func TestHalfOpenProbeFailureReopens(t *testing.T) {
 	}
 }
 
-func TestOnlyOneProbeAtATime(t *testing.T) {
+// Caso CB-E07 · existente · técnica: TE/EG · condición: segunda llamada durante el probe es rechazada
+func TestCBE07_SoloUnProbeALaVez(t *testing.T) {
 	b, clk, _ := newTestBreaker(1, time.Second)
 	_ = b.Do(context.Background(), fail)
 	clk.Advance(2 * time.Second)
@@ -165,7 +175,8 @@ func TestOnlyOneProbeAtATime(t *testing.T) {
 	}
 }
 
-func TestCallerCancellationIsNotADependencyFailure(t *testing.T) {
+// Caso CB-E08 · existente · técnica: EG · condición: cancelación del cliente no cuenta
+func TestCBE08_CancelacionDelClienteNoEsFalloDeLaDependencia(t *testing.T) {
 	b, _, _ := newTestBreaker(1, time.Second)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -178,7 +189,9 @@ func TestCallerCancellationIsNotADependencyFailure(t *testing.T) {
 	}
 }
 
-func TestOpenCircuitFailsFastUnderLoad(t *testing.T) {
+// Caso CB-E09 · existente · técnica: EG · condición: 200 llamadas rechazadas sin tocar la dependencia
+// Usa una cota de tiempo real (40 ms) como oráculo de no-espera.
+func TestCBE09_CircuitoAbiertoFallaRapidoBajoCarga(t *testing.T) {
 	b, _, _ := newTestBreaker(1, time.Minute)
 	_ = b.Do(context.Background(), fail)
 
@@ -199,7 +212,9 @@ func TestOpenCircuitFailsFastUnderLoad(t *testing.T) {
 	}
 }
 
-func TestSimulatorDownHangsUntilTimeoutThenBreakerOpens(t *testing.T) {
+// Caso CB-E10 · existente · técnica: TE · condición: Simulator DOWN → timeout → circuito abre → fallback PRE_AUTH
+// TEMPORIZADOR REAL ACOTADO: CallTimeout de 30 ms; estabilidad verificada con -race -count=20.
+func TestCBE10_SimuladorCaidoSeCortaPorTimeoutYAbreElCircuito(t *testing.T) {
 	sim := &Simulator{}
 	sys := New(sim, Config{Failures: 2, OpenFor: time.Minute, CallTimeout: 30 * time.Millisecond}, nil)
 
@@ -229,7 +244,8 @@ func TestSimulatorDownHangsUntilTimeoutThenBreakerOpens(t *testing.T) {
 	}
 }
 
-func TestStatusReportsHalfOpenOnceCoolDownIsOver(t *testing.T) {
+// Caso CB-E11 · existente · técnica: TE · condición: Status reporta HALF_OPEN al vencer el cool-down
+func TestCBE11_StatusInformaHalfOpenTrasElEnfriamiento(t *testing.T) {
 	b, clk, _ := newTestBreaker(1, 10*time.Second)
 	_ = b.Do(context.Background(), fail)
 	if st := b.Status(); st.State != Open || st.RetryAfter <= 0 {
@@ -245,16 +261,20 @@ func TestStatusReportsHalfOpenOnceCoolDownIsOver(t *testing.T) {
 	}
 }
 
-func TestPublicAvailabilityRecoversAfterCoolDown(t *testing.T) {
+// Caso CB-E12 · existente · técnica: TE · condición: Availability OPEN→HALF_OPEN→CLOSED
+// REFACTORIZADO: sin time.Sleep; el cool-down avanza con el reloj falso (sys.breaker.now). Conserva un único CallTimeout real de 20 ms para colgar al Simulator DOWN.
+func TestCBE12_DisponibilidadPublicaSeRecuperaTrasElEnfriamiento(t *testing.T) {
 	sim := &Simulator{}
 	sys := New(sim, Config{Failures: 1, OpenFor: 40 * time.Millisecond, CallTimeout: 20 * time.Millisecond}, nil)
+	clk := &clock{t: time.Unix(1_700_000_000, 0)}
+	sys.breaker.now = clk.Now
 	sim.SetMode(ModeDown)
 	_, _ = sys.Issue(context.Background())
 	if sys.Availability().Available {
 		t.Fatal("should be unavailable while open")
 	}
 	sim.SetMode(ModeUp)
-	time.Sleep(60 * time.Millisecond)
+	clk.Advance(60 * time.Millisecond)
 	if a := sys.Availability(); !a.Available || a.State != "HALF_OPEN" {
 		t.Fatalf("clients must be told to retry once the cool-down is over, got %+v", a)
 	}
@@ -268,7 +288,8 @@ func TestPublicAvailabilityRecoversAfterCoolDown(t *testing.T) {
 
 // ── bulkhead y callbacks ─────────────────────────────────────────────────────
 
-func TestBulkheadRejectsBeyondMaxConcurrentWithoutCountingAFailure(t *testing.T) {
+// Caso CB-E13 · existente · técnica: PE/VL · condición: OVERLOADED no cuenta como fallo
+func TestCBE13_MamparoRechazaExcesoSinContarFallo(t *testing.T) {
 	b := NewBreaker(Config{Failures: 1, OpenFor: time.Minute, CallTimeout: time.Second, MaxConcurrent: 2}, nil)
 	release := make(chan struct{})
 	var wg sync.WaitGroup
@@ -303,7 +324,9 @@ func TestBulkheadRejectsBeyondMaxConcurrentWithoutCountingAFailure(t *testing.T)
 	}
 }
 
-func TestOnChangeRunsOutsideTheLock(t *testing.T) {
+// Caso CB-E14 · existente · técnica: EG · condición: callback reentrante no se bloquea
+// TEMPORIZADOR REAL ACOTADO: CallTimeout de 50 ms y cota de 2 s; estabilidad verificada con -race -count=20.
+func TestCBE14_OnChangeSeEjecutaFueraDelCerrojo(t *testing.T) {
 	var b *Breaker
 	done := make(chan struct{})
 	b = NewBreaker(Config{Failures: 1, OpenFor: time.Minute, CallTimeout: 50 * time.Millisecond}, func(from, to State) {
@@ -318,7 +341,11 @@ func TestOnChangeRunsOutsideTheLock(t *testing.T) {
 	}
 }
 
-func TestInflightCounterNeverLeaks(t *testing.T) {
+// Caso CB-E01..E15 · los 15 existentes
+// Técnica: Transición de estados, Partición en clases de equivalencia, Adivinación de errores.
+// Debe hacer / esperado: sin cambio de lógica (CB-E12 refactorizado, ver abajo)
+// TEMPORIZADOR REAL ACOTADO: CallTimeout de 20 ms; estabilidad verificada con -race -count=20.
+func TestCBE15_ContadorInflightNuncaSeFuga(t *testing.T) {
 	b := NewBreaker(Config{Failures: 1000, OpenFor: time.Minute, CallTimeout: 20 * time.Millisecond, MaxConcurrent: 3}, nil)
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {

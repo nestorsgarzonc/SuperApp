@@ -14,7 +14,10 @@ func validReq() CreateRequest {
 	}
 }
 
-func TestCreateRequestValidate(t *testing.T) {
+// Caso AL-E1..E5 · validaciones existentes
+// Técnica: Partición en clases de equivalencia, Tabla de decisión, Transición de estados.
+// Debe hacer / esperado: sin cambio
+func TestALE1_ValidacionDeCreateRequest(t *testing.T) {
 	now := time.Now()
 	future := now.Add(time.Hour)
 	old := now.Add(-8 * 24 * time.Hour)
@@ -55,7 +58,10 @@ func TestCreateRequestValidate(t *testing.T) {
 	}
 }
 
-func TestListFilterValidate(t *testing.T) {
+// Caso AL-E1..E5 · validaciones existentes
+// Técnica: Partición en clases de equivalencia, Tabla de decisión, Transición de estados.
+// Debe hacer / esperado: sin cambio
+func TestALE2_ValidacionDeListFilter(t *testing.T) {
 	a := time.Now()
 	b := a.Add(time.Hour)
 	if errs := (ListFilter{From: &a, To: &b, Movement: MovementExit}).validate(); len(errs) != 0 {

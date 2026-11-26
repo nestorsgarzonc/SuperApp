@@ -10,6 +10,7 @@ Cada prueba lleva en su nombre el ID del caso.
 scripts/critical-tests.sh                      # todas las suites, una por tier (requiere Node 20+ y Docker)
 cd front && npm run test:critical              # solo tier de presentación
 back/control-de-accesos/db/tests/run.sh        # solo tier de datos
+scripts/test-unit.sh                           # solo tier de lógica (back de control de accesos, Go)
 ```
 
 | Tier | Suite | Casos | Herramientas |
@@ -18,7 +19,8 @@ back/control-de-accesos/db/tests/run.sh        # solo tier de datos
 | Presentación | `front/src/test/critical/access-control.critical.test.tsx` | 12 | Vitest, Testing Library, MSW |
 | Presentación | `front/src/test/critical/qr.critical.test.tsx` | 31 | Vitest, Testing Library, MSW |
 | Datos | `back/control-de-accesos/db/tests/critical_data.test.sql` | 33 | PostgreSQL 18 (contenedor desechable), plpgsql |
-| **Total** | | **97** | |
+| Lógica | `back/control-de-accesos/ms/internal/**/*_test.go` (ver `scripts/test-unit.sh`) | 503 | Go `testing`, dobles de prueba, gremlins |
+| **Total** | | **600** | |
 
 Técnicas: **EP** partición de equivalencia · **BVA** valores límite · **TD** tabla de decisión ·
 **ST** transición de estados · **EXC** comportamiento excepcional.

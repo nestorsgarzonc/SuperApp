@@ -37,7 +37,10 @@ func router(dir Directory, internalSecret string) http.Handler {
 	return r
 }
 
-func TestMeReturnsTheCallersMemberships(t *testing.T) {
+// Caso ME-01 · GET /me devuelve las membresías de quien llama.
+// Entrada: Usuario autenticado con membresías simuladas
+// Debe hacer / esperado: 200 con sus membresías
+func TestME01_MeReturnsTheCallersMemberships(t *testing.T) {
 	t.Setenv("ENV", "production")
 	t.Setenv("GATEWAY_SECRET", "gw")
 	user, cx := uuid.New(), uuid.New()
@@ -64,7 +67,10 @@ func TestMeReturnsTheCallersMemberships(t *testing.T) {
 	}
 }
 
-func TestMeRequiresAuthentication(t *testing.T) {
+// Caso ME-02 · GET /me exige autenticación.
+// Entrada: Petición sin identidad
+// Debe hacer / esperado: 401
+func TestME02_MeRequiresAuthentication(t *testing.T) {
 	t.Setenv("ENV", "production")
 	rec := httptest.NewRecorder()
 	router(fakeDir{}, "").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/me/memberships", nil))
@@ -73,7 +79,10 @@ func TestMeRequiresAuthentication(t *testing.T) {
 	}
 }
 
-func TestMeInDevelopmentWithoutIdentityIsStillUnauthorized(t *testing.T) {
+// Caso ME-03 · En desarrollo, sin identidad sigue siendo no autorizado.
+// Entrada: ENV development y sin identidad
+// Debe hacer / esperado: 401
+func TestME03_MeInDevelopmentWithoutIdentityIsStillUnauthorized(t *testing.T) {
 	t.Setenv("ENV", "development")
 	rec := httptest.NewRecorder()
 	router(fakeDir{}, "").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/me/memberships", nil))
@@ -82,7 +91,10 @@ func TestMeInDevelopmentWithoutIdentityIsStillUnauthorized(t *testing.T) {
 	}
 }
 
-func TestInternalRole(t *testing.T) {
+// Caso ME-04 · El rol interno se reconoce solo con el secreto interno correcto.
+// Entrada: Peticiones con y sin secreto interno
+// Debe hacer / esperado: Rol interno solo con el secreto correcto
+func TestME04_InternalRole(t *testing.T) {
 	user, cx := uuid.New(), uuid.New()
 	path := "/internal/users/" + user.String() + "/complexes/" + cx.String() + "/role"
 
@@ -118,7 +130,10 @@ func TestInternalRole(t *testing.T) {
 	}
 }
 
-func TestInternalRoutesAreNotMountedWithoutASecret(t *testing.T) {
+// Caso ME-05 · Las rutas internas no existen si no hay secreto configurado.
+// Entrada: Servidor sin secreto interno
+// Debe hacer / esperado: 404 en las rutas internas
+func TestME05_InternalRoutesAreNotMountedWithoutASecret(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/internal/users/"+uuid.NewString()+"/complexes/"+uuid.NewString()+"/role", nil)
 	req.Header.Set(HeaderInternalSecret, "")
 	rec := httptest.NewRecorder()

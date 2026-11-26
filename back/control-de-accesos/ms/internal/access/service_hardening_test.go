@@ -121,7 +121,11 @@ func batchReq(unit uuid.UUID, n int) CreateQRBatchRequest {
 
 // ── C5: el lote es todo-o-nada ───────────────────────────────────────────────
 
-func TestQRBatchWritesNothingWhenTheQRSystemFailsMidway(t *testing.T) {
+// Caso GS-E1 · lote todo-o-nada si el QR falla a mitad
+// Técnica: Transición de estados, Adivinación de errores.
+// Entrada: —
+// Debe hacer / esperado: ErrUnavailable; 0 escrituras
+func TestGSE1_QRBatchWritesNothingWhenTheQRSystemFailsMidway(t *testing.T) {
 	complexID, user, unit := uuid.New(), uuid.New(), uuid.New()
 	repo := &fakeRepo{}
 	qr := &fakeQR{failAfter: 3} // emite 3 códigos y el 4.º falla
@@ -137,7 +141,11 @@ func TestQRBatchWritesNothingWhenTheQRSystemFailsMidway(t *testing.T) {
 	}
 }
 
-func TestQRBatchInsertsEverythingInOneTransaction(t *testing.T) {
+// Caso GS-E2 · lote en una transacción, códigos únicos
+// Técnica: Partición en clases de equivalencia.
+// Entrada: 25
+// Debe hacer / esperado: 1 tx, 25 pases
+func TestGSE2_QRBatchInsertsEverythingInOneTransaction(t *testing.T) {
 	complexID, user, unit := uuid.New(), uuid.New(), uuid.New()
 	repo := &fakeRepo{}
 	svc := newTestService(repo, &fakeQR{failAfter: -1}, complexID)
@@ -160,7 +168,11 @@ func TestQRBatchInsertsEverythingInOneTransaction(t *testing.T) {
 
 // ── C1: nadie lista los pases de unidades ajenas ─────────────────────────────
 
-func TestListingQRAndPreAuthIsScopedToTheCallersUnits(t *testing.T) {
+// Caso GS-E3 · listado acotado a unidades del usuario
+// Técnica: Partición en clases de equivalencia.
+// Entrada: —
+// Debe hacer / esperado: consulta por usuario, no por complejo
+func TestGSE3_ListingQRAndPreAuthIsScopedToTheCallersUnits(t *testing.T) {
 	complexID, user := uuid.New(), uuid.New()
 	repo := &fakeRepo{}
 	svc := newTestService(repo, &fakeQR{failAfter: -1}, complexID)

@@ -23,7 +23,11 @@ func gatewayHandler(mw func(http.Handler) http.Handler) (http.Handler, *seen) {
 	})), s
 }
 
-func TestGatewayIdentity(t *testing.T) {
+// Caso MW-E1 · Identidad del gateway (tabla)
+// Técnica: Tabla de decisión.
+// Entrada: ver gateway_test.go
+// Debe hacer / esperado: —
+func TestMWE1_IdentidadDelGateway(t *testing.T) {
 	t.Setenv("GATEWAY_SECRET", "gw-secret")
 	t.Setenv("JWT_SECRET", "jwt-secret")
 	user, cx := uuid.NewString(), uuid.NewString()
@@ -66,7 +70,11 @@ func TestGatewayIdentity(t *testing.T) {
 	}
 }
 
-func TestGatewayRejectedWhenNoSecretIsConfigured(t *testing.T) {
+// Caso MW-E2 · GATEWAY_SECRET vacío no autentica
+// Técnica: Adivinación de errores.
+// Entrada: —
+// Debe hacer / esperado: 401
+func TestMWE2_GatewaySinSecretoConfiguradoSeRechaza(t *testing.T) {
 	t.Setenv("GATEWAY_SECRET", "")
 	h, s := gatewayHandler(AuthMiddleware)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -79,7 +87,11 @@ func TestGatewayRejectedWhenNoSecretIsConfigured(t *testing.T) {
 	}
 }
 
-func TestGatewayRequestIgnoredByJWTPathAndJWTStillWorks(t *testing.T) {
+// Caso MW-E3 · JWT sigue funcionando junto al gateway
+// Técnica: Partición en clases de equivalencia.
+// Entrada: —
+// Debe hacer / esperado: 200
+func TestMWE3_RutaJWTSigueFuncionandoConGateway(t *testing.T) {
 	t.Setenv("GATEWAY_SECRET", "gw-secret")
 	t.Setenv("JWT_SECRET", "jwt-secret")
 	user := uuid.NewString()
@@ -99,7 +111,11 @@ func TestGatewayRequestIgnoredByJWTPathAndJWTStillWorks(t *testing.T) {
 	}
 }
 
-func TestOptionalAuthHonoursGatewayIdentity(t *testing.T) {
+// Caso MW-E4 · OptionalAuth respeta gateway
+// Técnica: Partición en clases de equivalencia.
+// Entrada: —
+// Debe hacer / esperado: 200 / 401
+func TestMWE4_OptionalAuthRespetaIdentidadDelGateway(t *testing.T) {
 	t.Setenv("GATEWAY_SECRET", "gw-secret")
 	user := uuid.NewString()
 	h, s := gatewayHandler(OptionalAuthMiddleware)

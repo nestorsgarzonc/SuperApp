@@ -7,7 +7,10 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestCheckTransition(t *testing.T) {
+// Caso AL-E1..E5 · validaciones existentes
+// Técnica: Partición en clases de equivalencia, Tabla de decisión, Transición de estados.
+// Debe hacer / esperado: sin cambio
+func TestALE3_CheckTransition(t *testing.T) {
 	cases := []struct {
 		name       string
 		last, want string
@@ -29,7 +32,10 @@ func TestCheckTransition(t *testing.T) {
 	}
 }
 
-func TestStatusFrom(t *testing.T) {
+// Caso AL-E1..E5 · validaciones existentes
+// Técnica: Partición en clases de equivalencia, Tabla de decisión, Transición de estados.
+// Debe hacer / esperado: sin cambio
+func TestALE4_StatusFrom(t *testing.T) {
 	for last, want := range map[string]string{
 		"":            StatusUnknown,
 		MovementEntry: StatusInside,
@@ -41,7 +47,10 @@ func TestStatusFrom(t *testing.T) {
 	}
 }
 
-func TestResidentMovementRequestValidate(t *testing.T) {
+// Caso AL-E1..E5 · validaciones existentes
+// Técnica: Partición en clases de equivalencia, Tabla de decisión, Transición de estados.
+// Debe hacer / esperado: sin cambio
+func TestALE5_ValidacionDeResidentMovementRequest(t *testing.T) {
 	ok := ResidentMovementRequest{ClientID: uuid.New(), Movement: MovementEntry}
 	if errs := ok.validate(); len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)

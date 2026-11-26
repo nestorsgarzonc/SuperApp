@@ -47,7 +47,11 @@ func waitEvent(t *testing.T, n chanNotifier) notifier.Event {
 	}
 }
 
-func TestNotifyAddressesTheUnitResidentsExceptTheActor(t *testing.T) {
+// Caso GS-E4 · notify excluye al actor
+// Técnica: Partición en clases de equivalencia.
+// Entrada: —
+// Debe hacer / esperado: solo el vecino
+func TestGSE4_NotifyAddressesTheUnitResidentsExceptTheActor(t *testing.T) {
 	complexID, unitID := uuid.New(), uuid.New()
 	actor, neighbour := uuid.New(), uuid.New()
 	svc, n := newNotifyService([]uuid.UUID{actor, neighbour}, complexID)
@@ -70,7 +74,11 @@ func TestNotifyAddressesTheUnitResidentsExceptTheActor(t *testing.T) {
 	}
 }
 
-func TestNotifyValidatedUsesTheVisitorCategoryForEveryResident(t *testing.T) {
+// Caso GS-E5 · notify de validación
+// Técnica: Partición en clases de equivalencia.
+// Entrada: —
+// Debe hacer / esperado: categoría VISITOR, 2 destinatarios
+func TestGSE5_NotifyValidatedUsesTheVisitorCategoryForEveryResident(t *testing.T) {
 	complexID := uuid.New()
 	a, b := uuid.New(), uuid.New()
 	svc, n := newNotifyService([]uuid.UUID{a, b}, complexID)
@@ -84,7 +92,11 @@ func TestNotifyValidatedUsesTheVisitorCategoryForEveryResident(t *testing.T) {
 	}
 }
 
-func TestNotifySkipsWhenThereIsNobodyToTell(t *testing.T) {
+// Caso GS-E6 · notify sin destinatarios
+// Técnica: Partición en clases de equivalencia.
+// Entrada: —
+// Debe hacer / esperado: no se envía
+func TestGSE6_NotifySkipsWhenThereIsNobodyToTell(t *testing.T) {
 	complexID := uuid.New()
 	actor := uuid.New()
 	svc, n := newNotifyService([]uuid.UUID{actor}, complexID)

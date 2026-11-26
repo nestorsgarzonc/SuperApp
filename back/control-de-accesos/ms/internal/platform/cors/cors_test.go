@@ -21,7 +21,10 @@ func serve(method string, headers map[string]string) (*httptest.ResponseRecorder
 	return rec, reached
 }
 
-func TestPreflightAnsweredBeforeRouter(t *testing.T) {
+// Caso CO-01 · El preflight de CORS se responde antes de llegar al router.
+// Entrada: Petición OPTIONS con origen
+// Debe hacer / esperado: Respuesta de preflight sin llamar al siguiente manejador
+func TestCO01_PreflightAnsweredBeforeRouter(t *testing.T) {
 	rec, reached := serve(http.MethodOptions, map[string]string{
 		"Origin": "https://nestorsgarzonc.github.io", "Access-Control-Request-Method": "POST",
 	})
@@ -30,7 +33,10 @@ func TestPreflightAnsweredBeforeRouter(t *testing.T) {
 	}
 }
 
-func TestRequestAllowsAnyOriginWithoutCredentials(t *testing.T) {
+// Caso CO-02 · CORS permite cualquier origen pero sin credenciales.
+// Entrada: Petición con origen
+// Debe hacer / esperado: Cabecera de origen permitido y sin credenciales
+func TestCO02_RequestAllowsAnyOriginWithoutCredentials(t *testing.T) {
 	rec, reached := serve(http.MethodPost, map[string]string{"Origin": "https://anything.example"})
 	if !reached || rec.Header().Get("Access-Control-Allow-Origin") != "*" {
 		t.Fatalf("reached=%v headers=%v", reached, rec.Header())
@@ -40,7 +46,10 @@ func TestRequestAllowsAnyOriginWithoutCredentials(t *testing.T) {
 	}
 }
 
-func TestNoOriginUntouched(t *testing.T) {
+// Caso CO-03 · Sin cabecera Origin la respuesta no se modifica.
+// Entrada: Petición sin Origin
+// Debe hacer / esperado: Sin cabeceras CORS agregadas
+func TestCO03_NoOriginUntouched(t *testing.T) {
 	rec, _ := serve(http.MethodPost, nil)
 	if rec.Header().Get("Access-Control-Allow-Origin") != "" {
 		t.Fatal("unexpected CORS header")

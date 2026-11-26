@@ -21,7 +21,11 @@ func (f fakeStaff) IsStaffOfComplex(_ context.Context, u, c uuid.UUID, role stri
 	return f.staff[u.String()+"|"+c.String()+"|"+role], f.err
 }
 
-func TestRequireStaffMiddleware(t *testing.T) {
+// Caso MW-E5 · RequireStaff tabla
+// Técnica: Tabla de decisión.
+// Entrada: —
+// Debe hacer / esperado: —
+func TestMWE5_RequireStaffTablaDeDecision(t *testing.T) {
 	user, complex1, complex2 := uuid.New(), uuid.New(), uuid.New()
 	checker := fakeStaff{staff: map[string]bool{
 		user.String() + "|" + complex1.String() + "|GUARD": true,
@@ -69,7 +73,11 @@ func TestRequireStaffMiddleware(t *testing.T) {
 	}
 }
 
-func TestRequireStaffMiddlewareNeedsComplexInContext(t *testing.T) {
+// Caso MW-E6 · RequireStaff sin complejo
+// Técnica: Adivinación de errores.
+// Entrada: —
+// Debe hacer / esperado: 400
+func TestMWE6_RequireStaffSinComplejoEnContexto(t *testing.T) {
 	h := RequireStaffMiddleware(fakeStaff{}, "GUARD")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("handler must not run")
 	}))
@@ -82,7 +90,11 @@ func TestRequireStaffMiddlewareNeedsComplexInContext(t *testing.T) {
 	}
 }
 
-func TestMiddlewareErrorsUseTheSameEnvelopeAsHandlers(t *testing.T) {
+// Caso MW-E7 · Sobre de error
+// Técnica: Partición en clases de equivalencia.
+// Entrada: —
+// Debe hacer / esperado: PERM_001 etc.
+func TestMWE7_SobreDeErrorIgualAlDeLosHandlers(t *testing.T) {
 	rec := httptest.NewRecorder()
 	respondWithError(rec, http.StatusForbidden, "nope")
 	body := rec.Body.String()
