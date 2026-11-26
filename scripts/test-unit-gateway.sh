@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Unit tests of the API gateway (C5) with per-case traceability.
 #
-#   scripts/test-unit-gateway.sh [--cover] [--mutation]
+#   scripts/test-unit-gateway.sh [--cover] [--mutation] [--run PREFIX]
 #
 #   (no option)  go test -race -count=1 -v ./...  ->  one line per case with its ID and verdict,
 #                then a table per part
@@ -10,6 +10,8 @@
 #   --mutation   mutation testing with gremlins v0.6.0 on every internal package, run on a COPY
 #                of the module in a temp dir (the repo is never modified). Uses $GREMLINS or
 #                gremlins from PATH; if missing it is built into $TOOLS.
+#   --run PREFIX only the cases of one part or case: --run PL, --run AN05, --run PL,RT
+#                (comma separated; passed to go test -run as ^Test(PREFIX)).
 #
 # Case IDs: Test<PREFIX><NN>_<Desc> -> <PREFIX>-<NN>  (TestPL05_X -> PL-05), and table
 # subtests named "PL-05c ..." count as cases of their own.
@@ -25,16 +27,33 @@ TOOLS=${TOOLS:-$HOME/.cache/gw-quality-tools}
 
 DO_COVER=0
 DO_MUTATION=0
-for arg in "$@"; do
+RUN=""
+while [ $# -gt 0 ]; do
+	arg=$1
+	shift
 	case $arg in
 	--cover) DO_COVER=1 ;;
 	--mutation) DO_MUTATION=1 ;;
+	--run)
+		[ $# -gt 0 ] || {
+			echo "--run needs a prefix (e.g. --run PL)" >&2
+			exit 2
+		}
+		case $1 in
+		*[!A-Za-z0-9,]* | "")
+			echo "invalid --run value: $1 (letters, digits and commas only)" >&2
+			exit 2
+			;;
+		esac
+		RUN="^Test($(echo "$1" | tr '[:lower:]' '[:upper:]' | tr ',' '|'))"
+		shift
+		;;
 	-h | --help)
 		sed -n '2,/^set -uo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'
 		exit 0
 		;;
 	*)
-		echo "unknown option: $arg (use --cover --mutation)" >&2
+		echo "unknown option: $arg (use --cover --mutation --run PREFIX)" >&2
 		exit 2
 		;;
 	esac
@@ -53,6 +72,7 @@ trap 'rm -rf "$TMP"' EXIT
 echo "=== API gateway (go test -race -count=1 -v ./...) ==="
 COVERARGS=()
 if [ "$DO_COVER" = 1 ]; then COVERARGS=(-coverpkg=./internal/... -coverprofile="$TMP/cover.out"); fi
+if [ -n "$RUN" ]; then COVERARGS+=(-run "$RUN"); fi
 (cd "$MOD" && go test -race -count=1 -v ${COVERARGS[@]+"${COVERARGS[@]}"} ./...) >"$TMP/test.log" 2>&1
 RC=$?
 
