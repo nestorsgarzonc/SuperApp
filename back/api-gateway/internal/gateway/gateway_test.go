@@ -230,7 +230,7 @@ func with(h map[string]string, kv ...string) map[string]string {
 }
 
 // Acceptance: a spoofed X-User-ID is replaced by the token's subject.
-func TestSpoofedUserIDIsReplaced(t *testing.T) {
+func TestAC01_SpoofedUserIDIsReplaced(t *testing.T) {
 	e := setup(t)
 	resp := e.do("GET", "/api/v1/access/qr-codes", with(bearer(e.token(resident, time.Now().Add(time.Hour))),
 		"X-User-ID", otherUser, "X-Gateway-Secret", "forged", "X-Internal-Secret", "forged"), "")
@@ -253,7 +253,7 @@ func TestSpoofedUserIDIsReplaced(t *testing.T) {
 }
 
 // Acceptance: the role comes from the memberships, never from the client.
-func TestComplexRoleComesFromMemberships(t *testing.T) {
+func TestAC02_ComplexRoleComesFromMemberships(t *testing.T) {
 	e := setup(t)
 	e.do("GET", "/api/v1/access/qr-codes", with(bearer(e.token(resident, time.Now().Add(time.Hour))),
 		"X-Complex-ID", complexOne, "X-Complex-Role", "ADMIN"), "")
@@ -264,7 +264,7 @@ func TestComplexRoleComesFromMemberships(t *testing.T) {
 }
 
 // Acceptance: a complex the user does not belong to never reaches the service.
-func TestForeignComplexIs403(t *testing.T) {
+func TestAC03_ForeignComplexIs403(t *testing.T) {
 	e := setup(t)
 	resp := e.do("GET", "/api/v1/access/qr-codes", with(bearer(e.token(resident, time.Now().Add(time.Hour))), "X-Complex-ID", complexTwo), "")
 	if resp.StatusCode != 403 || errorCode(t, resp) != "PERM_003" {
@@ -275,7 +275,7 @@ func TestForeignComplexIs403(t *testing.T) {
 	}
 }
 
-func TestMalformedComplexIs422(t *testing.T) {
+func TestAC04_MalformedComplexIs422(t *testing.T) {
 	e := setup(t)
 	resp := e.do("GET", "/api/v1/access/qr-codes", with(bearer(e.token(resident, time.Now().Add(time.Hour))), "X-Complex-ID", "nope"), "")
 	if resp.StatusCode != 422 || errorCode(t, resp) != "VAL_004" {
@@ -284,7 +284,7 @@ func TestMalformedComplexIs422(t *testing.T) {
 }
 
 // Acceptance: expired, missing, forged or wrong-issuer tokens are 401.
-func TestBadTokensAre401(t *testing.T) {
+func TestAC05_BadTokensAre401(t *testing.T) {
 	e := setup(t)
 	other, _ := rsa.GenerateKey(rand.Reader, 2048)
 	forged := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{"iss": issuer, "aud": audience, "sub": resident, "exp": time.Now().Add(time.Hour).Unix()})
@@ -316,7 +316,7 @@ func TestBadTokensAre401(t *testing.T) {
 
 // Acceptance: /internal is never routed, including through the
 // notificaciones prefix strip and encoded/dot-segment tricks.
-func TestInternalAndTraversalAre404(t *testing.T) {
+func TestAC06_InternalAndTraversalAre404(t *testing.T) {
 	e := setup(t)
 	auth := bearer(e.token(resident, time.Now().Add(time.Hour)))
 	for _, p := range []string{
@@ -344,7 +344,7 @@ func TestInternalAndTraversalAre404(t *testing.T) {
 }
 
 // Acceptance: control-de-accesos down → 503, never forwarded without a role.
-func TestMembershipOutageFailsClosed(t *testing.T) {
+func TestAC07_MembershipOutageFailsClosed(t *testing.T) {
 	e := setup(t)
 	e.caDown.Store(true)
 	resp := e.do("GET", "/api/v1/notifications/users/me/notifications", with(bearer(e.token(resident, time.Now().Add(time.Hour))), "X-Complex-ID", complexOne), "")
@@ -357,7 +357,7 @@ func TestMembershipOutageFailsClosed(t *testing.T) {
 }
 
 // Acceptance: exceeding the per-user limit is 429 with Retry-After.
-func TestUserRateLimit(t *testing.T) {
+func TestAC08_UserRateLimit(t *testing.T) {
 	e := setup(t, func(c *config.Config) { c.UserRatePerMin = 3 })
 	h := bearer(e.token(resident, time.Now().Add(time.Hour)))
 	for i := 0; i < 3; i++ {
@@ -371,7 +371,7 @@ func TestUserRateLimit(t *testing.T) {
 	}
 }
 
-func TestPublicAuthRoutes(t *testing.T) {
+func TestAC09_PublicAuthRoutes(t *testing.T) {
 	e := setup(t, func(c *config.Config) { c.PublicRatePerMin = 2 })
 	resp := e.do("POST", "/api/v1/auth/login", map[string]string{"X-User-ID": otherUser, "X-Complex-ID": complexOne}, `{"email":"a@b.c"}`)
 	if resp.StatusCode != 200 {
@@ -392,7 +392,7 @@ func TestPublicAuthRoutes(t *testing.T) {
 }
 
 // Auth receives the validated complex as a signed tenant context.
-func TestAuthGetsSignedTenant(t *testing.T) {
+func TestAC10_AuthGetsSignedTenant(t *testing.T) {
 	e := setup(t)
 	tok := e.token(resident, time.Now().Add(time.Hour))
 	e.do("GET", "/api/v1/users/me", with(bearer(tok), "X-Complex-ID", complexOne, "X-Tenant-ID", complexTwo), "")
@@ -409,7 +409,7 @@ func TestAuthGetsSignedTenant(t *testing.T) {
 	}
 }
 
-func TestNotificacionesPrefixIsStripped(t *testing.T) {
+func TestAC11_NotificacionesPrefixIsStripped(t *testing.T) {
 	e := setup(t)
 	resp := e.do("PATCH", "/api/v1/notifications/notifications/abc/read?x=1", with(bearer(e.token(resident, time.Now().Add(time.Hour))), "X-Complex-ID", complexOne), "")
 	if resp.StatusCode != 200 {
@@ -421,7 +421,7 @@ func TestNotificacionesPrefixIsStripped(t *testing.T) {
 	}
 }
 
-func TestBodyLimit(t *testing.T) {
+func TestAC12_BodyLimit(t *testing.T) {
 	e := setup(t)
 	resp := e.do("POST", "/api/v1/access-grants", bearer(e.token(resident, time.Now().Add(time.Hour))), strings.Repeat("x", 2<<10))
 	if resp.StatusCode != 413 || errorCode(t, resp) != "SYS_003" {
@@ -429,7 +429,7 @@ func TestBodyLimit(t *testing.T) {
 	}
 }
 
-func TestDevTokensOnlyWhenEnabled(t *testing.T) {
+func TestAC13_DevTokensOnlyWhenEnabled(t *testing.T) {
 	dev := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": resident, "role": "ADMIN", "complex_id": complexTwo, "exp": time.Now().Add(time.Hour).Unix()})
 	raw, _ := dev.SignedString([]byte(devSecret))
 
@@ -454,7 +454,7 @@ func TestDevTokensOnlyWhenEnabled(t *testing.T) {
 	}
 }
 
-func TestCORS(t *testing.T) {
+func TestAC14_CORS(t *testing.T) {
 	e := setup(t)
 	resp := e.do("OPTIONS", "/api/v1/access/qr-codes", map[string]string{"Origin": "http://localhost:3000", "Access-Control-Request-Method": "POST"}, "")
 	if resp.StatusCode != 204 || resp.Header.Get("Access-Control-Allow-Origin") != "http://localhost:3000" || !strings.Contains(resp.Header.Get("Access-Control-Allow-Headers"), "X-Complex-ID") {
@@ -470,7 +470,7 @@ func TestCORS(t *testing.T) {
 	}
 }
 
-func TestUpstreamDownIs503(t *testing.T) {
+func TestAC15_UpstreamDownIs503(t *testing.T) {
 	e := setup(t)
 	e.notif.Close()
 	resp := e.do("GET", "/api/v1/notifications/me/devices", bearer(e.token(resident, time.Now().Add(time.Hour))), "")
@@ -479,7 +479,7 @@ func TestUpstreamDownIs503(t *testing.T) {
 	}
 }
 
-func TestRequestIDPropagates(t *testing.T) {
+func TestAC16_RequestIDPropagates(t *testing.T) {
 	e := setup(t)
 	resp := e.do("GET", "/api/v1/me/memberships", with(bearer(e.token(resident, time.Now().Add(time.Hour))), "X-Request-ID", "abc-123", "X-Correlation-ID", "spoof"), "")
 	got, _ := e.ca.got()
@@ -493,7 +493,7 @@ func TestRequestIDPropagates(t *testing.T) {
 }
 
 // A session revoked by auth (logout) is rejected before its token expires.
-func TestRevokedSessionIs401(t *testing.T) {
+func TestAC17_RevokedSessionIs401(t *testing.T) {
 	e := setup(t)
 	live := e.tokenWithSID(resident, "live", time.Now().Add(time.Hour))
 	gone := e.tokenWithSID(resident, "gone", time.Now().Add(time.Hour))

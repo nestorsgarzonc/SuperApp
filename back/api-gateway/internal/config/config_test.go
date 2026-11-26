@@ -15,7 +15,7 @@ func base(t *testing.T) {
 	t.Setenv("INTERNAL_SECRET", "c")
 }
 
-func TestLoadDefaults(t *testing.T) {
+func TestCF01_LoadDefaults(t *testing.T) {
 	base(t)
 	c, err := Load()
 	if err != nil {
@@ -26,7 +26,7 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
-func TestDevSwitchesRejectedOutsideDevelopment(t *testing.T) {
+func TestCF02_DevSwitchesRejectedOutsideDevelopment(t *testing.T) {
 	for key, val := range map[string]string{"DEV_HS256_SECRET": "x", "EXPOSE_DEV_ROUTES": "true", "CORS_ALLOWED_ORIGINS": "*"} {
 		t.Run(key, func(t *testing.T) {
 			base(t)
@@ -42,7 +42,7 @@ func TestDevSwitchesRejectedOutsideDevelopment(t *testing.T) {
 	}
 }
 
-func TestMissingSecretsFail(t *testing.T) {
+func TestCF03_MissingSecretsFail(t *testing.T) {
 	base(t)
 	t.Setenv("NOTIFICACIONES_SECRET", "")
 	t.Setenv("INTERNAL_SECRET", "")
