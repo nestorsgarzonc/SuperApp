@@ -9,7 +9,7 @@ import { BuildingPage } from './pages/building';
 import type { ReactNode } from 'react';
 import { useAuth as useIdentity } from '../../features/auth/components/AuthContext';
 
-function RequireRole({ roles, permission, children }: { roles: Role[]; permission: string; children: ReactNode }) {
+export function RequireRole({ roles, permission, children }: { roles: Role[]; permission: string; children: ReactNode }) {
   const { session } = useAuth();
   const { identity } = useIdentity();
   return session && roles.includes(session.role) && identity?.permissions.includes(permission) ? <>{children}</> : <Navigate to="/unauthorized" replace />;

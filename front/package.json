@@ -13,6 +13,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:critical": "vitest run src/test/critical --reporter=verbose",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
