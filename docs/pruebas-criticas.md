@@ -10,6 +10,7 @@ Cada prueba lleva en su nombre el ID del caso.
 scripts/critical-tests.sh                      # todas las suites, una por tier (requiere Node 20+ y Docker)
 cd front && npm run test:critical              # solo tier de presentación
 back/control-de-accesos/db/tests/run.sh        # solo tier de datos
+back/control-de-accesos/db/tests/mutation.sh   # mutación manual del esquema (18 mutantes)
 scripts/test-unit.sh                           # solo tier de lógica (back de control de accesos, Go)
 ```
 
@@ -18,9 +19,9 @@ scripts/test-unit.sh                           # solo tier de lógica (back de c
 | Presentación | `front/src/test/critical/auth.critical.test.tsx` | 21 | Vitest, Testing Library, MSW |
 | Presentación | `front/src/test/critical/access-control.critical.test.tsx` | 12 | Vitest, Testing Library, MSW |
 | Presentación | `front/src/test/critical/qr.critical.test.tsx` | 31 | Vitest, Testing Library, MSW |
-| Datos | `back/control-de-accesos/db/tests/critical_data.test.sql` | 33 | PostgreSQL 18 (contenedor desechable), plpgsql |
+| Datos | `back/control-de-accesos/db/tests/critical_data.test.sql` | 65 | PostgreSQL 18 (contenedor desechable), plpgsql |
 | Lógica | `back/control-de-accesos/ms/internal/**/*_test.go` (ver `scripts/test-unit.sh`) | 503 | Go `testing`, dobles de prueba, gremlins |
-| **Total** | | **600** | |
+| **Total** | | **632** | |
 
 Técnicas: **EP** partición de equivalencia · **BVA** valores límite · **TD** tabla de decisión ·
 **ST** transición de estados · **EXC** comportamiento excepcional.
@@ -101,6 +102,16 @@ Técnicas: **EP** partición de equivalencia · **BVA** valores límite · **TD*
 | TC-DB-07a–e | TD | Regla de sujeto: un residente requiere usuario, solo ENTRY/EXIT y siempre AUTHORIZED. |
 | TC-DB-08a–c | EP / EXC | El personal solo puede ser GUARD o ADMIN, sin duplicados. |
 | TC-DB-09 | EP | Borrar una unidad elimina sus membresías (no quedan accesos huérfanos). |
+| TC-DB-03b | EP | Un pase insertado sin `status` toma el valor por defecto ACTIVE (TC-DB-03 lo pasaba explícito). |
+| TC-DB-10a–i | EP | Cada valor válido de los enums se acepta: 5 tipos de visitante, USED, EXPIRED, rol ADMIN y resultado ALLOWED. |
+| TC-DB-11a–e | ST / TD | La sentencia real de `accesslog.Create`: un reintento afecta 0 filas sin error, y `grant_id` solo se guarda si el pase es del mismo conjunto. |
+| TC-DB-12a–c | BVA | Filtro "activo" de `GrantSummary` en `valid_until = now()`, `now() - 1 µs` y con `valid_from` nulo. |
+| TC-DB-13a–b | EP | `subject_type` vale VISITOR por defecto y no admite otros valores. |
+| TC-DB-14–18 | ST / EXC | Reglas del contrato que el esquema no impone: se reportan como SKIP con su hallazgo (DB-CA-F1 a F6). |
+
+Veredictos: PASS, FAIL o SKIP. SKIP solo lo usan los casos de reglas no impuestas por el esquema
+(`expect_rejected_gap`, `expect_eq_gap`): si algún día la base las impone, pasan a PASS solos.
+Última ejecución: 65 casos, 56 PASS, 9 SKIP, 0 FAIL.
 
 ## Aislamiento
 
@@ -118,6 +129,9 @@ Técnicas: **EP** partición de equivalencia · **BVA** valores límite · **TD*
 | `NewAuthorizationPage`: `end <= start` → `end < start` | TC-QR-06b |
 | Se elimina el CHECK `qr_required_if_method_qr` | TC-DB-01b |
 | El trigger de `audit_log` deja pasar los cambios | TC-DB-05b, 05c, 05d |
+
+El esquema tiene su propia ronda en `db/tests/mutation.sh` (mutantes en `db/tests/mutants.txt`):
+12 de 18 muertos con los 33 casos originales y 18 de 18 con los casos TC-DB-03b a 13.
 
 5 de 5 mutantes detectados.
 

@@ -1,0 +1,21 @@
+# Schema mutants for the data-tier suite (manual mutation testing, Delivery 1).
+# One mutant per line: ID | migration file | original text | mutated text
+# The original text must occur exactly once in the file. "<empty>" = delete it.
+M1  | 001_init.sql                | ,\n    CONSTRAINT qr_required_if_method_qr CHECK ((method = 'QR' AND qr_code_hash IS NOT NULL) OR method <> 'QR') | <empty>
+M2  | 001_init.sql                | 'CONTRACTOR', 'GUEST'                                  | 'CONTRACTOR'
+M3  | 001_init.sql                | 'USED', 'EXPIRED'                                      | 'USED'
+M4  | 001_init.sql                | status text NOT NULL DEFAULT 'ACTIVE'                  | status text NOT NULL DEFAULT 'USED'
+M5  | 003_security_hardening.sql  | single_use boolean NOT NULL DEFAULT true               | single_use boolean NOT NULL DEFAULT false
+M6  | 003_security_hardening.sql  | CREATE TRIGGER audit_log_no_update BEFORE UPDATE ON audit_log\n    FOR EACH ROW EXECUTE FUNCTION prevent_audit_log_mutation(); | <empty>
+M7  | 003_security_hardening.sql  | CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log\n    FOR EACH ROW EXECUTE FUNCTION prevent_audit_log_mutation(); | <empty>
+M8  | 004_access_logs.sql         | UNIQUE (complex_id, client_id)                         | UNIQUE (client_id)
+M9  | 004_access_logs.sql         | ,\n    UNIQUE (complex_id, client_id)                  | <empty>
+M10 | 006_resident_movements.sql  |  AND result = 'AUTHORIZED'                             | <empty>
+M11 | 006_resident_movements.sql  | movement IN ('ENTRY', 'EXIT') AND                      | movement IN ('ENTRY', 'EXIT', 'ATTEMPT') AND
+M12 | 001_init.sql                | REFERENCES units(id) ON DELETE CASCADE                 | REFERENCES units(id)
+M13 | 005_multi_complex.sql       | role IN ('GUARD', 'ADMIN')                             | role IN ('GUARD')
+M14 | 004_access_logs.sql         | movement IN ('ENTRY', 'EXIT', 'ATTEMPT')               | movement IN ('ENTRY', 'ATTEMPT')
+M15 | 001_init.sql                | valid_from timestamptz DEFAULT now()                   | valid_from timestamptz
+M16 | 003_security_hardening.sql  | result IN ('ALLOWED', 'DENIED')                        | result IN ('DENIED')
+M17 | 006_resident_movements.sql  | DEFAULT 'VISITOR'                                      | DEFAULT 'RESIDENT'
+M18 | 006_resident_movements.sql  | (subject_type = 'VISITOR')\n    OR                     | (subject_type IS NOT NULL)\n    OR
